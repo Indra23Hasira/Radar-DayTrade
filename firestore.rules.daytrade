@@ -1,0 +1,12 @@
+// Tempel DUA blok "match" di bawah ini ke Firestore Rules project radar-idx-hasira,
+// di DALAM blok `match /databases/{database}/documents { ... }` yang sudah ada.
+// Jangan hapus rules lain milik Radar IDX.
+
+    match /daytradeSettings/{market} {
+      allow read, write: if request.auth != null
+        && request.auth.token.email == "indraanggriawan17@gmail.com";
+    }
+    match /daytradeTrades/{tradeId} {
+      allow read, write: if request.auth != null
+        && request.auth.token.email == "indraanggriawan17@gmail.com";
+    }

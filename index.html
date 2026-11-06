@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radar DayTrade</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0A0E14">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0E14; --panel:#11161F; --panel-alt:#151B26; --border:#232B3A; --border-soft:#1B2230;
+    --text:#E6E9EF; --text-dim:#8992A6; --text-faint:#5C6577;
+    --gold:#D4A857; --gold-dim:#8B7239; --cyan:#4FD1C5;
+    --positive:#3ECF8E; --negative:#F2545B; --amber:#E8A33D; --radius:4px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{ background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; font-size:14px; line-height:1.5; }
+  .mono{ font-family:'IBM Plex Mono',monospace; }
+  button,input,select{ font:inherit; color:inherit; }
+  a{ color:var(--cyan); }
+
+  header{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    padding:14px 24px; border-bottom:1px solid var(--border); background:linear-gradient(180deg,#0D1219 0%,#0A0E14 100%); }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .radar-icon{ width:30px; height:30px; border-radius:50%; border:1px solid var(--gold-dim); position:relative; overflow:hidden;
+    background:radial-gradient(circle,rgba(212,168,87,.1) 0%,transparent 70%); }
+  .radar-icon::before{ content:''; position:absolute; top:0; left:50%; width:50%; height:50%;
+    background:conic-gradient(from 0deg,rgba(212,168,87,.6),transparent 70deg); transform-origin:0 100%; animation:sweep 3s linear infinite; }
+  @keyframes sweep{ to{ transform:rotate(360deg);} }
+  .title{ font-family:'Big Shoulders Display',sans-serif; font-weight:700; font-size:22px; letter-spacing:.5px; line-height:1; }
+  .subtitle{ font-size:11px; color:var(--text-faint); letter-spacing:.08em; text-transform:uppercase; }
+  .tabs{ display:flex; gap:4px; background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:3px; }
+  .tab{ background:none; border:0; padding:6px 18px; border-radius:3px; cursor:pointer; color:var(--text-dim); font-weight:600; }
+  .tab.active{ background:var(--gold); color:#14100a; }
+  .hdr-right{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:12px; color:var(--text-dim); }
+  .pill{ display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:99px; border:1px solid var(--border); font-size:12px; white-space:nowrap; }
+  .dot{ width:7px; height:7px; border-radius:50%; background:var(--text-faint); }
+  .dot.open{ background:var(--positive); box-shadow:0 0 6px var(--positive); }
+  .dot.break,.dot.pre{ background:var(--amber); }
+
+  main{ max-width:1180px; margin:0 auto; padding:18px 16px 60px; display:grid; gap:16px; }
+  main > *{ min-width:0; }
+  .row > label.f{ min-width:0; } .row select{ max-width:100%; }
+  .banner{ font-size:12px; color:var(--text-dim); border:1px dashed var(--border); border-radius:var(--radius); padding:8px 12px; }
+  .banner b{ color:var(--amber); }
+  .card{ background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); }
+  .card-h{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:12px 16px; border-bottom:1px solid var(--border-soft); }
+  .card-h h2{ font-family:'Big Shoulders Display',sans-serif; font-size:17px; letter-spacing:.4px; font-weight:700; }
+  .card-b{ padding:14px 16px; }
+  .muted{ color:var(--text-dim); } .faint{ color:var(--text-faint); font-size:12px; }
+  .pos{ color:var(--positive); } .neg{ color:var(--negative); } .gold{ color:var(--gold); } .amber{ color:var(--amber); }
+  .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .btn{ background:var(--panel-alt); border:1px solid var(--border); border-radius:var(--radius); padding:6px 12px; cursor:pointer; font-size:13px; }
+  .btn:hover{ border-color:var(--gold-dim); }
+  .btn.primary{ background:var(--gold); border-color:var(--gold); color:#14100a; font-weight:600; }
+  .btn.primary:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn.small{ padding:3px 9px; font-size:12px; }
+  .btn.danger{ color:var(--negative); }
+  input,select{ background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:6px 9px; min-width:0; }
+  input:focus,select:focus{ outline:1px solid var(--gold-dim); }
+  label.f{ display:grid; gap:3px; font-size:12px; color:var(--text-dim); }
+  .grid-f{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+  .chips{ display:flex; gap:6px; flex-wrap:wrap; }
+  .chip{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:99px; padding:2px 6px 2px 10px; font-size:12px; font-weight:600; }
+  .chip button{ background:none; border:0; color:var(--text-faint); cursor:pointer; font-size:14px; line-height:1; }
+  .chip button:hover{ color:var(--negative); }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th{ text-align:left; font-weight:500; color:var(--text-faint); font-size:11px; text-transform:uppercase; letter-spacing:.06em; padding:8px 10px; border-bottom:1px solid var(--border); }
+  td{ padding:8px 10px; border-bottom:1px solid var(--border-soft); vertical-align:middle; }
+  tr.sel td{ background:rgba(212,168,87,.06); }
+  .table-wrap{ overflow-x:auto; }
+  .tag{ display:inline-block; padding:1px 8px; border-radius:3px; font-size:11px; font-weight:600; letter-spacing:.03em; }
+  .tag.trig{ background:rgba(62,207,142,.15); color:var(--positive); }
+  .tag.wait{ background:rgba(79,209,197,.12); color:var(--cyan); }
+  .tag.exp,.tag.closed{ background:rgba(92,101,119,.2); color:var(--text-dim); }
+  .tag.err,.tag.block{ background:rgba(242,84,91,.15); color:var(--negative); }
+  .tag.pass{ background:rgba(62,207,142,.15); color:var(--positive); }
+  .tag.paper{ background:rgba(232,163,61,.15); color:var(--amber); }
+
+  .planner{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr)); gap:14px; }
+  .box{ min-width:0; overflow-x:auto; }
+  .box{ background:var(--panel-alt); border:1px solid var(--border-soft); border-radius:var(--radius); padding:12px 14px; }
+  .box h3{ font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); font-weight:600; margin-bottom:8px; }
+  .kv{ display:grid; grid-template-columns:auto 1fr; gap:3px 12px; font-size:13px; }
+  .kv dt{ color:var(--text-dim); } .kv dd{ text-align:right; font-family:'IBM Plex Mono',monospace; }
+  .probbar{ display:flex; height:22px; border-radius:3px; overflow:hidden; margin:6px 0 4px; font-size:11px; font-weight:600; }
+  .probbar div{ display:flex; align-items:center; justify-content:center; white-space:nowrap; overflow:hidden; }
+  .pb-t{ background:rgba(62,207,142,.75); color:#06140d; } .pb-s{ background:rgba(242,84,91,.75); color:#1a0607; } .pb-n{ background:#2a3344; color:var(--text-dim); }
+  .legend{ display:flex; gap:12px; flex-wrap:wrap; font-size:11px; color:var(--text-dim); }
+  .verdict{ margin-top:8px; font-size:13px; padding:8px 10px; border-left:3px solid var(--text-faint); background:rgba(255,255,255,.02); }
+  .verdict.good{ border-color:var(--positive); } .verdict.bad{ border-color:var(--negative); }
+  .checks{ list-style:none; display:grid; gap:4px; font-size:13px; }
+  .checks li{ display:grid; grid-template-columns:18px 1fr; gap:6px; }
+  .checks .d{ grid-column:2; color:var(--text-faint); font-size:12px; font-family:'IBM Plex Mono',monospace; }
+  pre.ticket{ white-space:pre-wrap; font-family:'IBM Plex Mono',monospace; font-size:13px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:10px; }
+  .stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:12px; }
+  .stat{ background:var(--panel-alt); border:1px solid var(--border-soft); border-radius:var(--radius); padding:8px 12px; }
+  .stat .v{ font-family:'IBM Plex Mono',monospace; font-size:17px; font-weight:600; }
+  .stat .l{ font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.06em; }
+  .empty{ color:var(--text-faint); font-size:13px; padding:10px 0; }
+  .msg{ font-size:12px; padding:6px 10px; border-radius:var(--radius); margin-top:8px; }
+  .msg.err{ background:rgba(242,84,91,.1); color:var(--negative); } .msg.info{ background:rgba(79,209,197,.08); color:var(--cyan); }
+  details summary{ cursor:pointer; color:var(--text-dim); font-size:13px; }
+  .hidden{ display:none !important; }
+
+  #loginOverlay{ position:fixed; inset:0; background:rgba(5,7,10,.94); display:flex; align-items:center; justify-content:center; z-index:50; padding:16px; }
+  .login{ width:100%; max-width:340px; display:grid; gap:10px; }
+  .login input{ width:100%; padding:9px 11px; }
+  @media (max-width:640px){
+    header{ padding:12px 14px; } main{ padding:12px 10px 50px; }
+    .card-b{ padding:12px; } td,th{ padding:7px 6px; }
+    .hide-m{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loginOverlay">
+  <form class="login card card-b" id="loginForm">
+    <div class="brand"><div class="radar-icon"></div><div><div class="title">RADAR DAYTRADE</div><div class="subtitle">Masuk dengan akun Radar IDX</div></div></div>
+    <input id="loginEmail" type="email" placeholder="Email" autocomplete="username" required>
+    <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button class="btn primary" type="submit">Masuk</button>
+    <div id="loginError" class="msg err hidden"></div>
+  </form>
+</div>
+
+<header>
+  <div class="brand">
+    <div class="radar-icon"></div>
+    <div><div class="title">RADAR DAYTRADE</div><div class="subtitle">Intraday · ORB · Time Machine</div></div>
+  </div>
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-market="idx">IDX</button>
+    <button class="tab" data-market="us">US</button>
+  </div>
+  <div class="hdr-right">
+    <span class="pill"><span class="dot" id="clockDot"></span><span id="clockLabel">—</span></span>
+    <span class="mono" id="clockTime">—</span>
+    <span id="userEmail" class="hide-m"></span>
+    <button class="btn small" id="btnLogout">Keluar</button>
+  </div>
+</header>
+
+<main>
+  <div class="banner"><b>Mode paper.</b> Aplikasi ini tidak pernah mengirim order. Tiket di bawah dieksekusi manual di aplikasi broker setelah Anda yakin. Bukan saran keuangan; kebanyakan day trader rugi.
+    <span id="usNote" class="hidden"> Tab US: beta, data Yahoo tertunda ±15 menit.</span></div>
+
+  <section class="card">
+    <div class="card-h">
+      <h2>Watchlist & Scan ORB</h2>
+      <div class="row">
+        <label class="row faint"><input type="checkbox" id="autoRefresh"> refresh tiap 60 dtk saat bursa buka</label>
+        <button class="btn" id="btnImport">Import dari Radar IDX</button>
+        <button class="btn primary" id="btnScan">Scan sekarang</button>
+      </div>
+    </div>
+    <div class="card-b">
+      <form class="row" id="addForm" style="margin-bottom:10px">
+        <input id="addTicker" placeholder="Tambah kode, mis. BBRI atau BBRI,BBCA" style="flex:1; min-width:180px">
+        <button class="btn" type="submit">Tambah</button>
+      </form>
+      <div class="chips" id="chips"></div>
+      <div id="scanMsg"></div>
+      <div class="table-wrap" style="margin-top:10px">
+        <table>
+          <thead><tr><th>Saham</th><th>Status</th><th>Harga</th><th class="hide-m">Opening range</th><th>Breakout</th><th></th></tr></thead>
+          <tbody id="scanBody"><tr><td colspan="6" class="empty">Tambah saham lalu tekan Scan.</td></tr></tbody>
+        </table>
+      </div>
+      <div class="faint" id="scanTime" style="margin-top:6px"></div>
+    </div>
+  </section>
+
+  <section class="card hidden" id="plannerCard">
+    <div class="card-h">
+      <h2 id="plannerTitle">Rencana trade</h2>
+      <div class="row">
+        <label class="f">Stop<select id="pStop">
+          <option value="or_mid">Tengah opening range</option><option value="or_low">Bawah opening range</option>
+          <option value="pct:1">1% di bawah entry</option><option value="pct:2">2% di bawah entry</option></select></label>
+        <label class="f">Target<select id="pTarget"><option>1R</option><option>1.5R</option><option selected>2R</option><option>3R</option></select></label>
+        <label class="f">Jual paling lambat<select id="pFlat"></select></label>
+        <label class="f">Entry manual<input id="pEntry" type="number" step="any" placeholder="otomatis" style="width:110px"></label>
+        <button class="btn primary" id="btnPlan" style="align-self:end">Hitung ulang</button>
+      </div>
+    </div>
+    <div class="card-b">
+      <div id="planErr"></div>
+      <div class="planner" id="plannerBody"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <h2>Jurnal trade</h2>
+      <div class="row"><button class="btn" id="btnEvalTrades">Perbarui hasil</button></div>
+    </div>
+    <div class="card-b">
+      <div class="stats" id="journalStats"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tanggal</th><th>Saham</th><th>Order</th><th class="hide-m">Stop · Target</th><th>Hasil</th><th>P/L</th><th></th></tr></thead>
+          <tbody id="journalBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <details id="settingsBox">
+      <summary class="card-h" style="border:0"><h2 style="display:inline">Pengaturan & batas risiko</h2> <span class="faint" id="settingsMarket"></span></summary>
+      <div class="card-b">
+        <div class="grid-f" id="settingsForm"></div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn primary" id="btnSaveSettings">Simpan</button>
+          <span class="faint" id="settingsMsg"></span>
+        </div>
+        <details style="margin-top:14px">
+          <summary>Putar ulang hari lalu (latihan)</summary>
+          <div class="row" style="margin-top:8px">
+            <label class="f">Tanggal<input type="date" id="replayDate"></label>
+            <label class="f">Jam bursa<input type="time" id="replayTime" step="300"></label>
+            <button class="btn" id="btnReplay" style="align-self:end">Pakai waktu ini</button>
+            <button class="btn" id="btnLive" style="align-self:end">Kembali ke live</button>
+          </div>
+          <div class="faint" style="margin-top:4px">Scan, rencana dan risk check memakai waktu ini seolah-olah sekarang. Data hanya sampai 60 hari ke belakang.</div>
+        </details>
+      </div>
+    </details>
+  </section>
+
+  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
+</main>
+
+<script type="module">
+import { MARKETS, flatMinute } from "./lib/markets.js";
+import {
+  marketClock, chartUrl, parseChart, evaluateEntry, planExit, timeMachine, historyReplay, sizeOrder,
+  riskCheck, ticketText, prevCloseOf, hhmm, localParts, evaluateTrade,
+} from "./lib/engine.js";
+
+// ---------------------------------------------------------------- konfigurasi
+const firebaseConfig = {
+  apiKey: "AIzaSyAlTrAo6MMXjuiiFxdIW58UeaEl4ErMtiI",
+  authDomain: "radar-idx-hasira.firebaseapp.com",
+  projectId: "radar-idx-hasira",
+  storageBucket: "radar-idx-hasira.firebasestorage.app",
+  messagingSenderId: "675342054884",
+  appId: "1:675342054884:web:cd557eacc3b1da649c03f1",
+};
+const DEFAULTS = {
+  idx: { equity: 10000000, cash: 10000000, maxLossPerTrade: 100000, dailyLossLimit: 300000, maxTradesPerDay: 3, minRR: 1.2,
+    maxPositionPct: 50, cashBufferPct: 10, orMinutes: 15, buyPct: 0.15, sellPct: 0.25, perShare: 0, blocked: "", watchlist: ["BBRI", "BBCA", "TPIA", "EMAS", "ADRO"] },
+  us: { equity: 5000, cash: 5000, maxLossPerTrade: 50, dailyLossLimit: 150, maxTradesPerDay: 3, minRR: 1.2,
+    maxPositionPct: 60, cashBufferPct: 10, orMinutes: 15, buyPct: 0, sellPct: 0, perShare: 0.005, blocked: "", watchlist: ["TSLA", "NVDA", "AMD"] },
+};
+const FIELDS = [
+  ["equity", "Modal total", "num"], ["cash", "Kas tersedia", "num"], ["maxLossPerTrade", "Rugi maks per trade", "num"],
+  ["dailyLossLimit", "Batas rugi harian", "num"], ["maxTradesPerDay", "Maks trade per hari", "num"], ["minRR", "Min reward:risk (bersih fee)", "num"],
+  ["maxPositionPct", "Maks % modal per posisi", "num"], ["cashBufferPct", "Cadangan kas %", "num"], ["orMinutes", "Opening range (menit)", "num"],
+  ["buyPct", "Fee beli %", "num"], ["sellPct", "Fee jual % (incl. pajak)", "num"], ["perShare", "Komisi per lembar", "num"],
+  ["blocked", "Kode diblokir (koma)", "text"],
+];
+const PROXIES = [
+  (u) => `https://yahoo-proxy.indraanggriawan17.workers.dev/?url=${encodeURIComponent(u)}`,
+  (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+  (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+];
+
+// ---------------------------------------------------------------- state
+const S = {
+  market: "idx", settings: { idx: { ...DEFAULTS.idx }, us: { ...DEFAULTS.us } },
+  charts: {}, scan: {}, selected: null, plan: null, trades: [], replayAt: null,
+  db: null, fs: null, user: null,
+};
+const $ = (id) => document.getElementById(id);
+const M = () => MARKETS[S.market];
+const ST = () => S.settings[S.market];
+const nowSec = () => S.replayAt || Math.floor(Date.now() / 1000);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const pc = (x) => `${(x * 100).toFixed(1)}%`;
+const feesOf = (s) => ({ buyPct: +s.buyPct, sellPct: +s.sellPct, perShare: +s.perShare });
+const ls = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ---------------------------------------------------------------- Firebase
+let authFns = null, auth = null;
+async function initFirebase() {
+  try {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+    const fs = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+    authFns = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
+    const app = initializeApp(firebaseConfig, "daytrade");
+    S.db = fs.getFirestore(app); S.fs = fs;
+    auth = authFns.getAuth(app);
+    authFns.onAuthStateChanged(auth, async (user) => {
+      S.user = user;
+      $("loginOverlay").classList.toggle("hidden", !!user);
+      $("userEmail").textContent = user?.email || "";
+      if (user) { await loadRemote(); renderAll(); runScan(false); evalTrades(); }
+    });
+  } catch (e) {
+    showLoginErr("Gagal memuat Firebase: " + e.message);
+  }
+}
+function showLoginErr(t) { const el = $("loginError"); el.textContent = t; el.classList.remove("hidden"); }
+$("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("loginError").classList.add("hidden");
+  try { await authFns.signInWithEmailAndPassword(auth, $("loginEmail").value.trim(), $("loginPassword").value); }
+  catch { showLoginErr("Login gagal: email atau password salah."); }
+});
+$("btnLogout").onclick = () => auth && authFns.signOut(auth);
+
+let remoteOk = true;
+function remoteWarn(e) {
+  if (!remoteOk) return;
+  remoteOk = false;
+  $("scanMsg").innerHTML = `<div class="msg err">Firestore menolak akses (${esc(e.code || e.message)}). Data disimpan di perangkat ini dulu. Tambahkan rules daytrade (lihat README) supaya tersinkron.</div>`;
+}
+async function loadRemote() {
+  const { doc, getDoc, collection, getDocs, query, orderBy, limit } = S.fs;
+  for (const m of ["idx", "us"]) {
+    const local = ls.get(`dt_settings_${m}`, null);
+    S.settings[m] = { ...DEFAULTS[m], ...(local || {}) };
+    try {
+      const snap = await getDoc(doc(S.db, "daytradeSettings", m));
+      if (snap.exists()) S.settings[m] = { ...DEFAULTS[m], ...snap.data() };
+    } catch (e) { remoteWarn(e); }
+  }
+  S.trades = ls.get("dt_trades", []);
+  try {
+    const snap = await getDocs(query(collection(S.db, "daytradeTrades"), orderBy("createdAt", "desc"), limit(300)));
+    if (!snap.empty || !S.trades.length) S.trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) { remoteWarn(e); }
+}
+async function saveSettings(m) {
+  ls.set(`dt_settings_${m}`, S.settings[m]);
+  if (!remoteOk) return;
+  try { await S.fs.setDoc(S.fs.doc(S.db, "daytradeSettings", m), S.settings[m]); } catch (e) { remoteWarn(e); }
+}
+async function saveTrade(t) {
+  if (remoteOk) {
+    try {
+      if (t.id && !t.id.startsWith("local-")) await S.fs.setDoc(S.fs.doc(S.db, "daytradeTrades", t.id), strip(t));
+      else { const r = await S.fs.addDoc(S.fs.collection(S.db, "daytradeTrades"), strip(t)); t.id = r.id; }
+    } catch (e) { remoteWarn(e); }
+  }
+  if (!t.id) t.id = "local-" + Date.now();
+  ls.set("dt_trades", S.trades);
+}
+async function deleteTrade(t) {
+  S.trades = S.trades.filter(x => x !== t);
+  ls.set("dt_trades", S.trades);
+  if (remoteOk && t.id && !t.id.startsWith("local-")) {
+    try { await S.fs.deleteDoc(S.fs.doc(S.db, "daytradeTrades", t.id)); } catch (e) { remoteWarn(e); }
+  }
+}
+const strip = (t) => { const { id, ...rest } = t; return JSON.parse(JSON.stringify(rest)); };
+
+// ---------------------------------------------------------------- data harga
+async function fetchChart(sym, force = false) {
+  const key = `${S.market}:${sym}`;
+  const c = S.charts[key];
+  if (!force && c && Date.now() - c.at < 55_000) return c.json;
+  const url = chartUrl(M(), sym);
+  let lastErr;
+  for (const p of PROXIES) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 12000);
+      const r = await fetch(p(url), { signal: ctl.signal });
+      clearTimeout(t);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const json = await r.json();
+      if (!json?.chart) throw new Error("bukan data chart");
+      S.charts[key] = { at: Date.now(), json };
+      return json;
+    } catch (e) { lastErr = e; }
+  }
+  throw new Error(`Gagal ambil data ${sym}: ${lastErr?.message}`);
+}
+const parsedOf = async (sym, force) => parseChart(await fetchChart(sym, force), M(), nowSec());
+
+// ---------------------------------------------------------------- jam & header
+function tickClock() {
+  const c = marketClock(M(), nowSec());
+  $("clockDot").className = "dot " + c.state;
+  $("clockLabel").textContent = (S.replayAt ? "PUTAR ULANG · " : "") + c.label;
+  $("clockTime").textContent = `${c.date} ${hhmm(c.min)} ${M().tzLabel}`;
+  return c;
+}
+
+// ---------------------------------------------------------------- watchlist & scan
+function renderChips() {
+  const wl = ST().watchlist || [];
+  $("chips").innerHTML = wl.length ? wl.map(s => `<span class="chip">${esc(s)}<button data-rm="${esc(s)}" title="Hapus">×</button></span>`).join("")
+    : `<span class="faint">Watchlist kosong.</span>`;
+}
+$("chips").addEventListener("click", (e) => {
+  const s = e.target.dataset.rm; if (!s) return;
+  ST().watchlist = ST().watchlist.filter(x => x !== s);
+  delete S.scan[`${S.market}:${s}`];
+  saveSettings(S.market); renderChips(); renderScan();
+});
+$("addForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const add = $("addTicker").value.split(/[,\s]+/).map(s => M().display(s.trim())).filter(s => /^[A-Z0-9.\-^]{1,10}$/.test(s));
+  ST().watchlist = [...new Set([...(ST().watchlist || []), ...add])];
+  $("addTicker").value = "";
+  saveSettings(S.market); renderChips();
+});
+
+$("btnImport").onclick = async () => {
+  if (S.market !== "idx") { $("scanMsg").innerHTML = `<div class="msg info">Import Radar US belum tersedia (beda project Firebase). Tambah kode manual dulu.</div>`; return; }
+  const { collection, getDocs, query, orderBy, limit } = S.fs;
+  const got = new Set(); let note = [];
+  try {
+    const tp = await getDocs(query(collection(S.db, "topPicks"), orderBy("date", "desc"), limit(1)));
+    tp.forEach(d => { (d.data().picks || []).forEach(p => got.add(p.ticker)); note.push(`Top 3 ${d.data().date}`); });
+  } catch (e) { note.push("topPicks tidak terbaca"); }
+  try {
+    const wl = await getDocs(collection(S.db, "watchlist"));
+    wl.forEach(d => { const st = d.data().status; if (!st || st !== "closed") got.add(d.id); });
+    note.push(`watchlist (${wl.size})`);
+  } catch (e) { note.push("watchlist tidak terbaca"); }
+  const add = [...got].map(s => M().display(s));
+  const before = new Set(ST().watchlist);
+  ST().watchlist = [...new Set([...(ST().watchlist || []), ...add])];
+  saveSettings("idx"); renderChips();
+  const fresh = add.filter(s => !before.has(s));
+  $("scanMsg").innerHTML = `<div class="msg info">Dari Radar IDX (${note.join(", ")}, hanya dibaca): ${fresh.length ? "ditambah " + fresh.join(", ") : "tidak ada kode baru"}.</div>`;
+};
+
+let scanning = false;
+async function runScan(force = false) {
+  if (scanning) return;
+  scanning = true; $("btnScan").disabled = true;
+  const m = M(), st = ST(), { date } = localParts(nowSec(), m.tz);
+  const list = st.watchlist || [];
+  for (const sym of list) {
+    const key = `${S.market}:${sym}`;
+    S.scan[key] = { ...(S.scan[key] || {}), loading: true };
+    renderScan();
+    try {
+      const parsed = await parsedOf(sym, force);
+      const e = evaluateEntry(parsed, m, date, { orMinutes: +st.orMinutes, flat: selectedFlat() });
+      const day = parsed.days[date];
+      const prev = prevCloseOf(parsed, date);
+      const last = day?.bars.at(-1)?.c ?? parsed.days[parsed.dates.at(-1)]?.close;
+      S.scan[key] = { e, last, chg: prev && last ? (last / prev - 1) * 100 : null, at: Date.now() };
+    } catch (err) { S.scan[key] = { error: err.message }; }
+    renderScan();
+  }
+  $("scanTime").textContent = `Scan terakhir ${new Date().toLocaleTimeString("id-ID")} · data Yahoo bisa tertunda beberapa menit`;
+  scanning = false; $("btnScan").disabled = false;
+}
+$("btnScan").onclick = () => runScan(true);
+
+function renderScan() {
+  const m = M(), list = ST().watchlist || [];
+  if (!list.length) { $("scanBody").innerHTML = `<tr><td colspan="6" class="empty">Tambah saham lalu tekan Scan.</td></tr>`; return; }
+  const order = { triggered: 0, waiting: 1, waiting_or: 2, expired: 3, closed: 4 };
+  const rows = list.map(sym => ({ sym, r: S.scan[`${S.market}:${sym}`] }))
+    .sort((a, b) => (order[a.r?.e?.status] ?? 9) - (order[b.r?.e?.status] ?? 9));
+  $("scanBody").innerHTML = rows.map(({ sym, r }) => {
+    if (!r) return `<tr><td><b>${esc(sym)}</b></td><td colspan="5" class="faint">belum discan</td></tr>`;
+    if (r.loading && !r.e) return `<tr><td><b>${esc(sym)}</b></td><td colspan="5" class="faint">memuat…</td></tr>`;
+    if (r.error) return `<tr><td><b>${esc(sym)}</b></td><td><span class="tag err">ERROR</span></td><td colspan="4" class="faint">${esc(r.error)}</td></tr>`;
+    const e = r.e;
+    const tag = { triggered: ["trig", "TRIGGER"], waiting: ["wait", "MENUNGGU"], waiting_or: ["wait", "TUNGGU OR"], expired: ["exp", "LEWAT"], closed: ["closed", "TUTUP"] }[e.status] || ["exp", e.status];
+    const brk = e.status === "triggered" ? `<span class="pos">${m.price(e.entry)} · ${e.time}</span>`
+      : e.status === "waiting" ? `<span class="mono">${m.price(e.level)}</span> <span class="faint">(+${e.gapPct.toFixed(2)}%)</span>`
+      : `<span class="faint">${esc(e.note)}</span>`;
+    return `<tr class="${S.selected === sym ? "sel" : ""}">
+      <td><b>${esc(sym)}</b></td>
+      <td><span class="tag ${tag[0]}">${tag[1]}</span></td>
+      <td class="mono">${r.last != null ? m.price(r.last) : "-"} <span class="${r.chg >= 0 ? "pos" : "neg"}" style="font-size:11px">${r.chg == null ? "" : (r.chg >= 0 ? "+" : "") + r.chg.toFixed(2) + "%"}</span></td>
+      <td class="mono hide-m">${e.or ? `${m.price(e.or.low)} – ${m.price(e.or.high)}` : "-"}</td>
+      <td>${brk}</td>
+      <td><button class="btn small" data-plan="${esc(sym)}">Rencanakan</button></td></tr>`;
+  }).join("");
+}
+$("scanBody").addEventListener("click", (e) => { const s = e.target.dataset.plan; if (s) openPlanner(s); });
+
+setInterval(() => {
+  const c = tickClock();
+  if ($("autoRefresh").checked && c.state === "open" && !S.replayAt && Date.now() - (S.lastAuto || 0) > 60_000) {
+    S.lastAuto = Date.now(); runScan(true).then(() => S.selected && computePlan(false));
+  }
+}, 1000);
+
+// ---------------------------------------------------------------- planner
+function fillFlat() {
+  const m = M();
+  $("pFlat").innerHTML = m.flatPresets.map(p => `<option value="${p.id}" ${p.id === (ST().flat || m.defaultFlat) ? "selected" : ""}>${p.label}</option>`).join("");
+}
+const selectedFlat = () => $("pFlat").value || ST().flat || M().defaultFlat;
+
+function openPlanner(sym) {
+  S.selected = sym;
+  $("pEntry").value = "";
+  $("plannerCard").classList.remove("hidden");
+  $("plannerTitle").textContent = `Rencana trade · ${sym}`;
+  renderScan();
+  computePlan(false);
+  $("plannerCard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("btnPlan").onclick = () => computePlan(false);
+["pStop", "pTarget", "pFlat"].forEach(id => $(id).addEventListener("change", () => S.selected && computePlan(false)));
+
+function todayStats(date) {
+  const ts = S.trades.filter(t => t.market === S.market && t.date === date);
+  return {
+    trades: ts.length,
+    riskUsed: ts.filter(t => !t.result || t.result.status !== "closed").reduce((a, t) => a + (t.maxLoss || 0), 0),
+    realized: ts.filter(t => t.result?.status === "closed").reduce((a, t) => a + t.result.pnl, 0),
+  };
+}
+
+async function computePlan(force) {
+  const sym = S.selected; if (!sym) return;
+  const m = M(), st = ST(), now = nowSec(), { date } = localParts(now, m.tz);
+  $("planErr").innerHTML = ""; $("plannerBody").innerHTML = `<div class="faint">Menghitung 10.000 replay…</div>`;
+  try {
+    const parsed = await parsedOf(sym, force);
+    const flatId = selectedFlat();
+    const flatMin = flatMinute(m, date, flatId);
+    if (flatMin == null) throw new Error(`${date}: ${m.holiday(date) || "bukan hari bursa"}. Pakai "Putar ulang hari lalu" di Pengaturan untuk latihan.`);
+    const fees = feesOf(st);
+    const e = evaluateEntry(parsed, m, date, { orMinutes: +st.orMinutes, flat: flatId });
+    let entry = +$("pEntry").value || e.entry, fromMin = e.barMin, entryNote;
+    if (+$("pEntry").value) entryNote = `Entry manual ${m.price(entry)}`;
+    else if (e.status === "triggered") entryNote = `Trigger ${e.time}: close ${m.price(e.entry)} di atas OR high ${m.price(e.or.high)}`;
+    else if (e.status === "waiting" && e.level) { entry = e.level + m.tick(e.level); entryNote = `Belum trigger. Rencana kalau bar ditutup di ${m.price(entry)} (1 tick di atas OR high)`; }
+    else throw new Error(e.note);
+    if (fromMin == null) { const bars = parsed.days[date]?.bars || []; fromMin = bars.length ? bars.at(-1).min : flatMin - 30; }
+    const prevClose = prevCloseOf(parsed, date);
+    const plan = planExit({ market: m, date, entry, or: e.or, stopRule: $("pStop").value, targetRule: $("pTarget").value, prevClose, fees });
+    const tm = timeMachine({ market: m, date, parsed, plan, fromMin, flatMin, prevClose, fees });
+    const hist = historyReplay({ market: m, parsed, date, orMinutes: +st.orMinutes, stopRule: $("pStop").value, targetRule: $("pTarget").value, flatPreset: flatId, fees });
+    const settings = { ...st, blocked: String(st.blocked || "").split(",").map(s => s.trim()).filter(Boolean) };
+    const order = sizeOrder({ market: m, symbol: sym, plan, account: settings, fees });
+    const clock = marketClock(m, now);
+    const risk = riskCheck({ market: m, order, plan, settings, today: todayStats(date), clock, flatMin, now });
+    S.plan = { sym, date, e, plan, tm, hist, order, risk, flatMin, fromMin, flatId, entryNote };
+    renderPlan();
+  } catch (err) {
+    S.plan = null;
+    $("plannerBody").innerHTML = "";
+    $("planErr").innerHTML = `<div class="msg err">${esc(err.message)}</div>`;
+  }
+}
+
+function renderPlan() {
+  const m = M(), P = m.price, { e, plan, tm, hist, order, risk, flatMin, entryNote } = S.plan;
+  const pt = tm.pTarget * 100, ps = tm.pStop * 100, pn = tm.pNeither * 100;
+  const histRows = hist.trades.slice(-8).reverse().map(t => `<tr><td>${t.date.slice(5)}</td><td>${t.time}</td><td class="mono">${P(t.entry)}</td>
+    <td class="${t.outcome === "target" ? "pos" : t.outcome === "stop" ? "neg" : "muted"}">${{ target: "target", stop: "stop", close: "jual waktu" }[t.outcome]}</td><td class="mono ${t.R > 0 ? "pos" : "neg"}">${t.R > 0 ? "+" : ""}${t.R}</td></tr>`).join("");
+  $("plannerBody").innerHTML = `
+    <div class="box">
+      <h3>Entry & rencana keluar</h3>
+      <div class="faint" style="margin-bottom:8px">${esc(entryNote)}</div>
+      <dl class="kv">
+        ${e.or ? `<dt>Opening range ${ST().orMinutes}m</dt><dd>${P(e.or.low)} – ${P(e.or.high)}</dd>` : ""}
+        <dt>Entry</dt><dd>${P(plan.entry)}</dd>
+        <dt>Stop</dt><dd class="neg">${P(plan.stop)}</dd>
+        <dt>Target</dt><dd class="pos">${P(plan.target)}</dd>
+        <dt>Risiko / lembar</dt><dd>${P(plan.risk)}</dd>
+        <dt>R kotor → bersih fee</dt><dd>${plan.rGross} → <b>${plan.rNet}</b></dd>
+        ${plan.limits ? `<dt>ARB · ARA</dt><dd>${P(plan.limits.arb)} · ${P(plan.limits.ara)}</dd>` : ""}
+        <dt>Jual paling lambat</dt><dd>${hhmm(flatMin + 5)} ${m.tzLabel}</dd>
+      </dl>
+      ${plan.limits ? `<div class="faint" style="margin-top:6px">${esc(plan.limits.rule)}</div>` : ""}
+      ${plan.warnings.map(w => `<div class="msg err">${esc(w)}</div>`).join("")}
+    </div>
+    <div class="box">
+      <h3>Time Machine · ${tm.replays.toLocaleString("id-ID")} replay</h3>
+      <div class="faint">Sisa hari (${tm.from}–${tm.until}) diulang dari pola ${tm.sessions} sesi terakhir saham ini.</div>
+      <div class="probbar">
+        <div class="pb-t" style="width:${pt}%">${pt >= 8 ? pt.toFixed(0) + "%" : ""}</div>
+        <div class="pb-s" style="width:${ps}%">${ps >= 8 ? ps.toFixed(0) + "%" : ""}</div>
+        <div class="pb-n" style="width:${pn}%">${pn >= 8 ? pn.toFixed(0) + "%" : ""}</div>
+      </div>
+      <div class="legend"><span class="pos">■ target duluan ${pc(tm.pTarget)}</span><span class="neg">■ stop duluan ${pc(tm.pStop)}</span><span>■ tidak kena ${pc(tm.pNeither)}</span></div>
+      <dl class="kv" style="margin-top:8px">
+        <dt>Rata-rata R</dt><dd class="${tm.avgR >= 0 ? "pos" : "neg"}">${tm.avgR > 0 ? "+" : ""}${tm.avgR}</dd>
+        <dt>Harga saat jual (median)</dt><dd>${P(tm.medianClose)}</dd>
+        <dt>Rentang 5%–95%</dt><dd>${P(tm.p5Close)} – ${P(tm.p95Close)}</dd>
+      </dl>
+      <div class="verdict ${tm.verdict.tone}">${esc(tm.verdict.text)}</div>
+    </div>
+    <div class="box">
+      <h3>Sejarah aturan yang sama</h3>
+      <div style="margin-bottom:6px">Dari ${hist.sessions} sesi: trigger <b>${hist.triggered}x</b> → <span class="pos">target ${hist.target}</span> · <span class="neg">stop ${hist.stop}</span> · jual waktu ${hist.close}.
+        Rata-rata R <b class="${(hist.avgR ?? 0) >= 0 ? "pos" : "neg"}">${hist.avgR ?? "-"}</b></div>
+      ${histRows ? `<table><thead><tr><th>Tgl</th><th>Jam</th><th>Entry</th><th>Hasil</th><th>R</th></tr></thead><tbody>${histRows}</tbody></table>` : `<div class="faint">Belum pernah trigger.</div>`}
+    </div>
+    <div class="box">
+      <h3>Ukuran posisi & risk check <span class="tag ${risk.pass ? "pass" : "block"}" style="margin-left:6px">${risk.pass ? "PASS" : "BLOCK"}</span></h3>
+      ${order.ok ? `<dl class="kv" style="margin-bottom:10px">
+        <dt>Jumlah</dt><dd><b>${m.id === "idx" ? `${order.units} lot` : `${order.shares} lembar`}</b></dd>
+        <dt>Nilai posisi</dt><dd>${m.money(order.value)}</dd>
+        <dt>Rugi maks di stop</dt><dd class="neg">${m.money(order.maxLoss)}</dd>
+        <dt>Untung di target</dt><dd class="pos">${m.money(order.expectedWin)}</dd>
+        <dt>Dibatasi oleh</dt><dd style="font-family:inherit">${esc(order.decidedBy)}</dd></dl>` : `<div class="msg err">${esc(order.reason)}</div>`}
+      <ul class="checks">${risk.checks.map(c => `<li><span class="${c.ok ? "pos" : "neg"}">${c.ok ? "✓" : "✗"}</span><span>${esc(c.label)}</span><span class="d">${esc(c.detail)}</span></li>`).join("")}</ul>
+    </div>
+    <div class="box">
+      <h3>Tiket order (manual)</h3>
+      ${order.ok ? `<pre class="ticket" id="ticketText">${esc(ticketText({ market: m, order, flatMin }))}</pre>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="btnCopy">Salin</button>
+        <button class="btn primary" id="btnRecord" ${risk.pass ? "" : "disabled"}>Catat trade (paper)</button>
+      </div>
+      <div class="faint" style="margin-top:6px">${risk.pass ? "Tercatat di jurnal; hasil dihitung otomatis dari bar berikutnya." : "Tidak bisa dicatat: risk check BLOCK."}</div>` : `<div class="faint">Tidak ada tiket.</div>`}
+    </div>`;
+  const cp = $("btnCopy"); if (cp) cp.onclick = () => navigator.clipboard?.writeText($("ticketText").textContent).then(() => (cp.textContent = "Tersalin"));
+  const rec = $("btnRecord"); if (rec) rec.onclick = recordTrade;
+}
+
+async function recordTrade() {
+  const p = S.plan; if (!p?.risk.pass) return;
+  const t = {
+    market: S.market, symbol: p.order.symbol, date: p.date, mode: "paper",
+    entry: p.plan.entry, stop: p.plan.stop, target: p.plan.target, units: p.order.units, shares: p.order.shares,
+    maxLoss: p.order.maxLoss, value: p.order.value, entryMin: p.fromMin, flatMin: p.flatMin, flat: p.flatId,
+    stopRule: p.plan.stopRule, targetRule: p.plan.targetRule, rNet: p.plan.rNet,
+    tm: { pTarget: p.tm.pTarget, pStop: p.tm.pStop, avgR: p.tm.avgR },
+    createdAt: new Date().toISOString(), replay: !!S.replayAt,
+  };
+  S.trades.unshift(t);
+  await saveTrade(t);
+  renderJournal();
+  computePlan(false);
+}
+
+// ---------------------------------------------------------------- jurnal
+async function evalTrades() {
+  const m = M();
+  const open = S.trades.filter(t => t.market === S.market && t.result?.status !== "closed");
+  for (const t of open) {
+    try {
+      const parsed = parseChart(await fetchChart(t.symbol), m, Math.floor(Date.now() / 1000));
+      const r = evaluateTrade({ market: m, parsed, trade: t, fees: feesOf(ST()) });
+      if (r) { t.result = r; if (r.status === "closed") await saveTrade(t); }
+    } catch (e) { t.result = { status: "error", note: e.message }; }
+  }
+  renderJournal();
+}
+$("btnEvalTrades").onclick = evalTrades;
+$("journalBody").addEventListener("click", async (e) => {
+  const i = e.target.dataset.del; if (i == null) return;
+  const t = S.trades.filter(x => x.market === S.market)[+i];
+  if (t && confirm(`Hapus trade ${t.symbol} ${t.date}?`)) { await deleteTrade(t); renderJournal(); }
+});
+
+function renderJournal() {
+  const m = M(), ts = S.trades.filter(t => t.market === S.market);
+  const closed = ts.filter(t => t.result?.status === "closed");
+  const pnl = closed.reduce((a, t) => a + t.result.pnl, 0);
+  const wins = closed.filter(t => t.result.pnl > 0).length;
+  const avgR = closed.length ? closed.reduce((a, t) => a + t.result.R, 0) / closed.length : null;
+  $("journalStats").innerHTML = `
+    <div class="stat"><div class="v">${ts.length}</div><div class="l">Trade dicatat</div></div>
+    <div class="stat"><div class="v">${closed.length ? Math.round(wins / closed.length * 100) + "%" : "-"}</div><div class="l">Menang (${wins}/${closed.length})</div></div>
+    <div class="stat"><div class="v ${pnl >= 0 ? "pos" : "neg"}">${closed.length ? m.money(pnl) : "-"}</div><div class="l">Total P/L paper</div></div>
+    <div class="stat"><div class="v ${(avgR ?? 0) >= 0 ? "pos" : "neg"}">${avgR == null ? "-" : (avgR > 0 ? "+" : "") + avgR.toFixed(2)}</div><div class="l">Rata-rata R</div></div>`;
+  $("journalBody").innerHTML = ts.length ? ts.map((t, i) => {
+    const r = t.result;
+    const res = !r ? `<span class="faint">belum dicek</span>` : r.status === "open" ? `<span class="tag wait">BERJALAN</span>`
+      : r.status === "error" ? `<span class="tag err" title="${esc(r.note)}">ERROR</span>`
+      : `<span class="${r.outcome === "target" ? "pos" : r.outcome === "stop" ? "neg" : "muted"}">${{ target: "target", stop: "stop", flat: "jual waktu" }[r.outcome]} ${m.price(r.exit)} · ${r.time}</span>`;
+    const pl = r?.status === "closed" ? `<span class="mono ${r.pnl >= 0 ? "pos" : "neg"}">${m.money(r.pnl)}<br><span class="faint">${r.R > 0 ? "+" : ""}${r.R}R</span></span>` : "";
+    return `<tr><td>${t.date}${t.replay ? ' <span class="tag paper">ULANG</span>' : ""}</td><td><b>${esc(t.symbol)}</b></td>
+      <td class="mono">${m.id === "idx" ? t.units + " lot" : t.shares + " lbr"} @ ${m.price(t.entry)}</td>
+      <td class="mono hide-m">${m.price(t.stop)} · ${m.price(t.target)}</td><td>${res}</td><td>${pl}</td>
+      <td><button class="btn small danger" data-del="${i}" title="Hapus">×</button></td></tr>`;
+  }).join("") : `<tr><td colspan="7" class="empty">Belum ada trade. Catat dari panel rencana saat risk check PASS.</td></tr>`;
+}
+
+// ---------------------------------------------------------------- pengaturan
+function renderSettings() {
+  const st = ST();
+  $("settingsMarket").textContent = `(${M().name})`;
+  $("settingsForm").innerHTML = FIELDS.map(([k, label, type]) =>
+    `<label class="f">${label}<input data-k="${k}" type="${type === "num" ? "number" : "text"}" step="any" value="${esc(st[k])}"></label>`).join("");
+}
+$("btnSaveSettings").onclick = async () => {
+  const st = ST();
+  document.querySelectorAll("#settingsForm input").forEach(i => { st[i.dataset.k] = i.type === "number" ? Number(i.value) : i.value; });
+  st.flat = selectedFlat();
+  await saveSettings(S.market);
+  $("settingsMsg").textContent = "Tersimpan " + new Date().toLocaleTimeString("id-ID");
+  if (S.selected) computePlan(false);
+};
+$("btnReplay").onclick = () => {
+  const d = $("replayDate").value, t = $("replayTime").value;
+  if (!d || !t) return;
+  const [hh, mm] = t.split(":").map(Number);
+  // waktu lokal bursa -> UTC (iterasi untuk zona dengan DST)
+  let guess = Date.UTC(...d.split("-").map((v, i) => (i === 1 ? +v - 1 : +v)), hh, mm) / 1000;
+  for (let k = 0; k < 3; k++) {
+    const p = localParts(guess, M().tz);
+    const asUtc = Date.UTC(...p.date.split("-").map((v, i) => (i === 1 ? +v - 1 : +v)), Math.floor(p.min / 60), p.min % 60) / 1000;
+    guess += (Date.UTC(...d.split("-").map((v, i) => (i === 1 ? +v - 1 : +v)), hh, mm) / 1000) - asUtc;
+  }
+  S.replayAt = guess; S.scan = {};
+  tickClock(); renderScan(); runScan(false);
+};
+$("btnLive").onclick = () => { S.replayAt = null; S.scan = {}; tickClock(); renderScan(); runScan(false); };
+
+// ---------------------------------------------------------------- tab pasar
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
+  S.market = b.dataset.market; S.selected = null; S.plan = null;
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === b));
+  $("plannerCard").classList.add("hidden");
+  $("btnImport").classList.toggle("hidden", S.market !== "idx");
+  $("usNote").classList.toggle("hidden", S.market !== "us");
+  renderAll();
+  runScan(false);
+});
+
+function renderAll() {
+  fillFlat(); tickClock(); renderChips(); renderScan(); renderJournal(); renderSettings();
+}
+renderAll();
+initFirebase();
+</script>
+</body>
+</html>
