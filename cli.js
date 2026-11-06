@@ -15,9 +15,9 @@ import {
 
 const DEFAULTS = {
   idx: { equity: 10_000_000, cash: null, maxLossPerTrade: 100_000, dailyLossLimit: 300_000, maxTradesPerDay: 3,
-    minRR: 1.2, maxPositionPct: 50, cashBufferPct: 10, orMinutes: 15, stopRule: "or_mid", targetRule: "2R", flat: "sesi1", blocked: [] },
+    minRR: 1.2, maxPositionPct: 50, cashBufferPct: 10, orMinutes: 15, maxExtension: 1, stopRule: "or_mid", targetRule: "2R", flat: "sesi1", blocked: [] },
   us: { equity: 5_000, cash: null, maxLossPerTrade: 50, dailyLossLimit: 150, maxTradesPerDay: 3,
-    minRR: 1.2, maxPositionPct: 60, cashBufferPct: 10, orMinutes: 15, stopRule: "or_mid", targetRule: "2R", flat: "close", blocked: [] },
+    minRR: 1.2, maxPositionPct: 60, cashBufferPct: 10, orMinutes: 15, maxExtension: 1, stopRule: "or_mid", targetRule: "2R", flat: "close", blocked: [] },
 };
 
 function args(argv) {
@@ -53,7 +53,7 @@ function loadSettings(market, a) {
     s = { ...s, ...(all[market.id] || {}) };
   }
   const map = { equity: "equity", cash: "cash", "max-loss": "maxLossPerTrade", "daily-limit": "dailyLossLimit",
-    "max-trades": "maxTradesPerDay", "min-rr": "minRR", "or": "orMinutes", stop: "stopRule", target: "targetRule", flat: "flat" };
+    "max-trades": "maxTradesPerDay", "min-rr": "minRR", "or": "orMinutes", "max-ext": "maxExtension", stop: "stopRule", target: "targetRule", flat: "flat" };
   for (const [k, v] of Object.entries(map)) if (a[k] != null && a[k] !== true) s[v] = isNaN(Number(a[k])) ? a[k] : Number(a[k]);
   if (s.cash == null) s.cash = s.equity;
   return s;
@@ -103,13 +103,13 @@ async function cmdScan(market, a) {
   for (const sym of syms) {
     try {
       const parsed = parseChart(await getChart(market, sym, a), market, now);
-      const e = evaluateEntry(parsed, market, date, { orMinutes: s.orMinutes, flat: s.flat });
+      const e = evaluateEntry(parsed, market, date, { orMinutes: s.orMinutes, flat: s.flat, maxExtension: s.maxExtension });
       rows.push({ symbol: market.display(sym), ...e });
     } catch (err) { rows.push({ symbol: market.display(sym), status: "error", note: err.message }); }
     if (!a.offline) await new Promise(r => setTimeout(r, 400));
   }
   if (a.json) return console.log(JSON.stringify({ date, rows }, null, 2));
-  const label = { triggered: "TRIGGER", waiting: "menunggu", waiting_or: "tunggu OR", expired: "lewat", closed: "tutup", error: "error" };
+  const label = { triggered: "TRIGGER", waiting: "menunggu", waiting_or: "tunggu OR", expired: "lewat", extended: "terlalu jauh", closed: "tutup", error: "error" };
   console.log(`Scan ORB ${market.name} ${date} (OR ${s.orMinutes} menit)`);
   for (const r of rows) {
     const extra = r.status === "triggered" ? `entry ${market.price(r.entry)} jam ${r.time}`
@@ -127,7 +127,7 @@ async function cmdPlan(market, a) {
   const parsed = parseChart(await getChart(market, sym, a), market, now);
   const flatMin = flatMinute(market, date, s.flat);
   if (flatMin == null) throw new Error(`${date} bukan hari bursa ${market.name}`);
-  const e = evaluateEntry(parsed, market, date, { orMinutes: s.orMinutes, flat: s.flat });
+  const e = evaluateEntry(parsed, market, date, { orMinutes: s.orMinutes, flat: s.flat, maxExtension: s.maxExtension });
   let entry = a.entry ? Number(a.entry) : e.entry;
   let fromMin = e.barMin;
   if (!entry) {
@@ -141,7 +141,7 @@ async function cmdPlan(market, a) {
   const prevClose = prevCloseOf(parsed, date);
   const plan = planExit({ market, date, entry, or: e.or, stopRule: s.stopRule, targetRule: s.targetRule, prevClose });
   const tm = timeMachine({ market, date, parsed, plan, fromMin, flatMin, prevClose, replays: Number(a.replays || 10000), seed: Number(a.seed || 19) });
-  const hist = historyReplay({ market, parsed, date, orMinutes: s.orMinutes, stopRule: s.stopRule, targetRule: s.targetRule, flatPreset: s.flat });
+  const hist = historyReplay({ market, parsed, date, orMinutes: s.orMinutes, stopRule: s.stopRule, targetRule: s.targetRule, flatPreset: s.flat, maxExtension: s.maxExtension });
   const order = sizeOrder({ market, symbol: sym, plan, account: s });
   const clock = marketClock(market, now);
   const risk = riskCheck({ market, order, plan, settings: s, today: { trades: Number(a["trades-today"] || 0), riskUsed: Number(a["risk-today"] || 0), realized: Number(a["realized-today"] || 0) }, clock, flatMin, now });
@@ -162,7 +162,7 @@ async function cmdPlan(market, a) {
   console.log(`  target duluan ${pc(tm.pTarget)} · stop duluan ${pc(tm.pStop)} · tidak kena keduanya ${pc(tm.pNeither)} · rata-rata R ${tm.avgR}`);
   console.log(`  harga saat jual: median ${P(tm.medianClose)}, 5%–95% ${P(tm.p5Close)}–${P(tm.p95Close)}`);
   console.log(`  ${tm.verdict.text}`);
-  console.log(`Sejarah : aturan sama di ${hist.sessions} sesi → trigger ${hist.triggered}x: target ${hist.target}, stop ${hist.stop}, jual di batas waktu ${hist.close}; rata-rata R ${hist.avgR ?? "-"}`);
+  console.log(`Sejarah : aturan sama di ${hist.sessions} sesi → trigger ${hist.triggered}x${hist.skippedExtended ? ` (+${hist.skippedExtended} dilewati karena terlalu jauh)` : ""}: target ${hist.target}, stop ${hist.stop}, jual di batas waktu ${hist.close}; rata-rata R ${hist.avgR ?? "-"}`);
   console.log(`\nSizing  : ${order.ok ? `${market.id === "idx" ? `${order.units} lot (${order.shares} lembar)` : `${order.shares} lembar`}, nilai ${market.money(order.value)}, rugi maks ${market.money(order.maxLoss)} — dibatasi ${order.decidedBy}` : order.reason}`);
   console.log(`Risk    : ${risk.pass ? "PASS" : "BLOCK"}`);
   risk.checks.forEach(c => console.log(`  ${c.ok ? "✓" : "✗"} ${c.label}: ${c.detail}`));
@@ -173,7 +173,7 @@ async function cmdPlan(market, a) {
 const HELP = `Radar-DayTrade CLI
   node cli.js status [--market idx|us]
   node cli.js scan BBRI,BBCA,TPIA [--market idx]
-  node cli.js plan BBRI [--entry 2740] [--stop or_mid|or_low|pct:1.5|price:2700] [--target 2R|price:2800]
+  node cli.js plan BBRI [--entry 2740] [--stop or_mid|or_low|pct:1.5|price:2700] [--target 2R|price:2800] [--max-ext 1 (0=mati)]
                        [--flat sesi1|close] [--equity 10000000] [--max-loss 100000] [--write] [--json]
 Opsi umum: --market idx|us (default idx), --date YYYY-MM-DD --at HH:MM (putar ulang), --offline FILE|DIR,
            --config trader/daytrade.json`;

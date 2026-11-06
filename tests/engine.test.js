@@ -125,3 +125,33 @@ test("US: TSLA ORB 4 Nov 2026", () => {
   assert.equal(e.status, "triggered");
   assert.equal(e.time, "09:55");
 });
+
+test("filter terlalu jauh: DEFI 6 Nov loncat 13% di atas OR high → tidak dikejar", () => {
+  const p = parseChart(fx("DEFI.JK.json"), IDX, AT("2026-11-06T03:00:00Z"));
+  const e = evaluateEntry(p, IDX, "2026-11-06", { orMinutes: 15 });
+  assert.equal(e.status, "extended");
+  assert.equal(e.time, "09:20");
+  assert.equal(e.entry, 76);
+  assert.equal(e.maxPrice, 71);                                   // 67 + 1 × (67 − 63)
+  const off = evaluateEntry(p, IDX, "2026-11-06", { orMinutes: 15, maxExtension: 0 });
+  assert.equal(off.status, "triggered");
+});
+
+test("breakout di luar jendela dicatat sebagai info: BBRI 6 Nov jual siang", () => {
+  const p = parseChart(fx("BBRI.JK.json"), IDX, AT("2026-11-06T07:38:00Z"));
+  const e = evaluateEntry(p, IDX, "2026-11-06", { orMinutes: 15, flat: "sesi1" });
+  assert.equal(e.status, "expired");
+  assert.deepEqual(e.lateBreak, { time: "14:05", price: 2730 });
+  assert.match(e.note, /di luar jendela/);
+  const s2 = evaluateEntry(p, IDX, "2026-11-06", { orMinutes: 15, flat: "close" });
+  assert.equal(s2.status, "triggered");
+  assert.equal(s2.time, "14:05");
+});
+
+test("riwayat memakai filter yang sama", () => {
+  const p = parseChart(fx("EMAS.JK.json"), IDX, AT("2026-11-05T03:00:00Z"));
+  const on = historyReplay({ market: IDX, parsed: p, date: "2026-11-05" });
+  const off = historyReplay({ market: IDX, parsed: p, date: "2026-11-05", maxExtension: 0 });
+  assert.equal(on.triggered + on.skippedExtended, off.triggered + off.skippedExtended);
+  assert.equal(off.skippedExtended, 0);
+});

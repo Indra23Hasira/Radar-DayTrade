@@ -60,16 +60,33 @@ fi
 
 say "5/5 GitHub"
 cd "$DEST"
+VER=$(node -p "require('./package.json').version" 2>/dev/null || echo "?")
 if [ ! -d .git ]; then
   git init -q -b main
   git add -A
-  git commit -q -m "Radar-DayTrade: app day trade IDX + US, mesin ORB/Time Machine, skill Claude Code
+  git commit -q -m "Radar-DayTrade v$VER: app day trade IDX + US, mesin ORB/Time Machine, skill Claude Code
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01XPVSZABorv78pfjy6B52y7"
   echo "   repo lokal dibuat (commit pertama)"
+elif [ -n "$(git status --porcelain)" ]; then
+  git add -A
+  git commit -q -m "Radar-DayTrade v$VER: update
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XPVSZABorv78pfjy6B52y7"
+  echo "   perubahan v$VER di-commit"
+else
+  echo "   tidak ada perubahan file"
 fi
-if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
+if git remote get-url origin >/dev/null 2>&1; then
+  # repo GitHub sudah tersambung: kirim update, GitHub Pages ikut ter-update dalam 1-2 menit
+  if git push -q origin main 2>/dev/null || git push origin main; then
+    echo "   terkirim ke GitHub. App online ter-update dalam 1-2 menit (refresh halaman)."
+  else
+    echo "   push gagal — jalankan manual: cd \"$DEST\" && git push origin main"
+  fi
+elif command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
   read -r -p "   Buat repo PUBLIK Indra23Hasira/Radar-DayTrade di GitHub & aktifkan Pages? (y/n) " ans
   if [ "$ans" = "y" ]; then
     gh repo view Indra23Hasira/Radar-DayTrade >/dev/null 2>&1 || gh repo create Indra23Hasira/Radar-DayTrade --public --source=. --remote=origin
