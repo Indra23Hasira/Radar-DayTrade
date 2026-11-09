@@ -19,6 +19,7 @@ cli.js                  versi terminal mesin yang sama (dipakai skill Claude Cod
 tests/                  tes offline dengan data Yahoo asli (npm test)
 skills/radar-daytrade   skill Claude Code untuk IDX/US (memanggil cli.js)
 skills/trader-*         11 skill asli day-trader-skill (MIT, Jake Schincariol) untuk saham US
+pindah-laptop.sh        backup (laptop lama) & pasang ulang (laptop baru) — lihat PINDAH-LAPTOP.md
 install.sh              pasang ke ~/apk-radar + skill + divisi Kantor AI + GitHub
 firestore.rules.daytrade  rules tambahan untuk koleksi daytradeSettings & daytradeTrades
 ```
