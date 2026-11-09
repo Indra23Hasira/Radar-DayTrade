@@ -27,7 +27,8 @@ node "$DT" plan EMAS                               # rencana lengkap + Time Mach
 node "$DT" plan BBRI --entry 2790                  # rencanakan sebelum trigger
 node "$DT" plan EMAS --stop or_low --target 1.5R --flat close
 node "$DT" plan EMAS --date 2026-11-05 --at 10:30  # putar ulang hari lalu (latihan)
-node "$DT" plan TSLA --market us                   # pasar US (jam New York)
+node "$DT" plan TSLA --market us --earnings-ok     # US, default "jual besok" (maks 23:30 WIB)
+node "$DT" plan TSLA --market us --flat close      # US jual hari yang sama
 node "$DT" plan EMAS --json                        # keluaran mentah
 ```
 
@@ -48,6 +49,17 @@ Batas risiko dibaca dari `trader/daytrade.json` di folder kerja (kunci `idx` / `
 - Lot 100 lembar, fraksi harga (Rp1/2/5/10/25), ARA/ARB per tanggal berlaku
   (ARB 7% sementara s.d. 31 Des 2026; rencana simetris 2027 — cek ulang pengumuman BEI).
 - Fee default beli 0,15% & jual 0,25% (sudah termasuk PPh 0,1%), masuk ke R bersih.
+
+## Mode US "jual besok" (default tab US)
+
+- Beli setelah opening range s.d. 23:30 WIB, jual paling lambat 23:30 WIB hari bursa berikutnya
+  (`--exit-at` untuk jam lain). Jam ET dihitung otomatis termasuk pergantian DST.
+- Time Machine menyimulasikan sisa malam → gap semalam (diambil dari gap nyata saham itu 60 hari) →
+  besok s.d. jam jual. Tampilkan "stop tembus karena gap" dan 5% skenario terburuk.
+- Risk check tambahan: konfirmasi tidak ada laporan keuangan (`--earnings-ok`, WAJIB dicek user dulu),
+  dan rugi skenario gap terburuk 60 hari ≤ batas rugi harian.
+- Komisi IBKR Pro Fixed: $0,005/lembar, min $1/order, maks 1% nilai. Akun cash: pakai dana settled (T+1).
+- Tiket: beli + bracket GTC (stop & take profit), jual sisa besok. Stop tidak melindungi dari gap.
 
 ## Cara kerja dengan user
 

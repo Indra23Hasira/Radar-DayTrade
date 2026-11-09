@@ -2,10 +2,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { MARKETS, slotsFor, flatMinute } from "../lib/markets.js";
+import { MARKETS, slotsFor, flatMinute, orderFee, exitWindow, nextTradingDate } from "../lib/markets.js";
 import {
   parseChart, evaluateEntry, planExit, timeMachine, historyReplay, sizeOrder, riskCheck,
-  marketClock, prevCloseOf, fullSessions, evaluateTrade, localParts,
+  marketClock, prevCloseOf, fullSessions, evaluateTrade, localParts, gapStats, toWIB,
 } from "../lib/engine.js";
 
 const IDX = MARKETS.idx, US = MARKETS.us;
@@ -154,4 +154,59 @@ test("riwayat memakai filter yang sama", () => {
   const off = historyReplay({ market: IDX, parsed: p, date: "2026-11-05", maxExtension: 0 });
   assert.equal(on.triggered + on.skippedExtended, off.triggered + off.skippedExtended);
   assert.equal(off.skippedExtended, 0);
+});
+
+
+// ---------------------------------------------------------------- v0.3: IBKR & jual besok
+test("komisi IBKR Pro Fixed: $0,005/lembar, min $1, maks 1% nilai", () => {
+  const f = US.fees;
+  assert.equal(orderFee(f, 100, 3, "buy"), 1);              // 0,015 → min $1
+  assert.equal(orderFee(f, 20, 2, "buy"), 0.4);             // nilai $40 → maks 1% = $0,40
+  assert.equal(orderFee(f, 50, 400, "sell"), 2);            // 400 × 0,005
+  assert.equal(orderFee(IDX.fees, 1000, 100, "sell"), 250); // IDX 0,25%
+});
+
+test("hari bursa berikutnya & jendela jual besok 23:30 WIB", () => {
+  assert.equal(nextTradingDate(US, "2026-11-25"), "2026-11-27"); // Thanksgiving
+  assert.equal(nextTradingDate(US, "2026-11-06"), "2026-11-09"); // Jumat → Senin
+  const w = exitWindow(US, "2026-11-04", "next");
+  assert.equal(w.overnight, true);
+  assert.equal(w.flatDate, "2026-11-05");
+  assert.equal(w.flatMin, 11 * 60 + 25);   // bar 11:25–11:30 ET = 23:30 WIB (EST)
+  assert.equal(w.lastEntryMin, 11 * 60 + 25);
+  const summer = exitWindow(US, "2026-06-10", "next");
+  assert.equal(summer.flatMin, 12 * 60 + 25); // EDT: 23:30 WIB = 12:30 ET
+  assert.equal(toWIB(US, "2026-11-05", 11 * 60 + 30).min, 23 * 60 + 30);
+  assert.equal(exitWindow(US, "2026-11-04", "next", "22:30").flatMin, 10 * 60 + 25);
+});
+
+test("jual besok: Time Machine dengan gap semalam, riwayat & jurnal lintas hari (TSLA)", () => {
+  const p = parseChart(fx("TSLA.json"), US, AT("2026-11-04T15:30:00Z"));
+  const e = evaluateEntry(p, US, "2026-11-04", { orMinutes: 15, flat: "next" });
+  assert.equal(e.status, "triggered");
+  const w = exitWindow(US, "2026-11-04", "next");
+  const plan = planExit({ market: US, date: "2026-11-04", entry: e.entry, or: e.or, refShares: 7 });
+  const tm = timeMachine({ market: US, date: "2026-11-04", parsed: p, plan, fromMin: e.barMin, flatMin: w.flatMin, flatDate: w.flatDate, replays: 3000 });
+  assert.equal(tm.overnight, true);
+  assert.ok(Math.abs(tm.pTarget + tm.pStop + tm.pNeither - 1) < 1e-9);
+  assert.ok(tm.pGapStop <= tm.pStop);
+  assert.ok(tm.gapPairs >= 40);
+  const g = gapStats(p, US, "2026-11-04");
+  assert.ok(g.worst < 1 && g.best > 1);
+  const h = historyReplay({ market: US, parsed: p, date: "2026-11-04", flatPreset: "next" });
+  assert.equal(h.triggered, h.target + h.stop + h.close);
+  // jurnal: trade 4 Nov dinilai dengan data 5 Nov
+  const full = parseChart(fx("TSLA.json"), US, AT("2026-11-06T12:00:00Z"));
+  const r = evaluateTrade({ market: US, parsed: full, trade: { date: "2026-11-04", entryMin: e.barMin, flatDate: w.flatDate, flatMin: w.flatMin, entry: plan.entry, stop: plan.stop, target: plan.target, shares: 7, maxLoss: 36 } });
+  assert.equal(r.status, "closed");
+  const open = evaluateTrade({ market: US, parsed: p, trade: { date: "2026-11-04", entryMin: e.barMin, flatDate: w.flatDate, flatMin: w.flatMin, entry: plan.entry, stop: 1, target: 9999, shares: 7, maxLoss: 36 } });
+  assert.equal(open.status, "open"); // hari kedua belum ada datanya
+});
+
+test("sizing US memperhitungkan komisi minimum", () => {
+  const plan = planExit({ market: US, date: "2026-11-04", entry: 40, or: { high: 40, low: 39 }, refShares: 10 });
+  const o = sizeOrder({ market: US, symbol: "XYZ", plan, account: { equity: 1000, cash: 1000, maxLossPerTrade: 10, maxPositionPct: 100, cashBufferPct: 0 } });
+  assert.ok(o.ok);
+  assert.ok(o.maxLoss <= 10);
+  assert.equal(o.shares, 16); // 16 × 0,50 + $1 + $1 = $10
 });

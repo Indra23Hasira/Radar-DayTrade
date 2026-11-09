@@ -148,7 +148,7 @@
 
 <main>
   <div class="banner"><b>Mode paper.</b> Aplikasi ini tidak pernah mengirim order. Tiket di bawah dieksekusi manual di aplikasi broker setelah Anda yakin. Bukan saran keuangan; kebanyakan day trader rugi.
-    <span id="usNote" class="hidden"> Tab US: beta, data Yahoo tertunda ±15 menit.</span></div>
+    <span id="usNote" class="hidden"> Tab US: data Yahoo bisa tertunda; komisi mengikuti IBKR Pro Fixed (min $1, maks 1%). Mode "jual besok" membawa posisi semalam — stop tidak melindungi dari gap.</span></div>
 
   <section class="card">
     <div class="card-h">
@@ -234,14 +234,14 @@
     </details>
   </section>
 
-  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.2 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
+  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.3 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
 </main>
 
 <script type="module">
-import { MARKETS, flatMinute } from "./lib/markets.js";
+import { MARKETS, exitWindow } from "./lib/markets.js";
 import {
   marketClock, chartUrl, parseChart, evaluateEntry, planExit, timeMachine, historyReplay, sizeOrder,
-  riskCheck, ticketText, prevCloseOf, hhmm, localParts, evaluateTrade,
+  riskCheck, ticketText, prevCloseOf, hhmm, localParts, evaluateTrade, gapStats, toWIB, dayLabel,
 } from "./lib/engine.js";
 
 // ---------------------------------------------------------------- konfigurasi
@@ -255,9 +255,9 @@ const firebaseConfig = {
 };
 const DEFAULTS = {
   idx: { equity: 10000000, cash: 10000000, maxLossPerTrade: 100000, dailyLossLimit: 300000, maxTradesPerDay: 3, minRR: 1.2,
-    maxPositionPct: 50, cashBufferPct: 10, orMinutes: 15, maxExtension: 1, buyPct: 0.15, sellPct: 0.25, perShare: 0, blocked: "", watchlist: ["BBRI", "BBCA", "TPIA", "EMAS", "ADRO"] },
+    maxPositionPct: 50, cashBufferPct: 10, orMinutes: 15, maxExtension: 1, buyPct: 0.15, sellPct: 0.25, perShare: 0, minOrder: 0, maxPct: 0, blocked: "", watchlist: ["BBRI", "BBCA", "TPIA", "EMAS", "ADRO"] },
   us: { equity: 5000, cash: 5000, maxLossPerTrade: 50, dailyLossLimit: 150, maxTradesPerDay: 3, minRR: 1.2,
-    maxPositionPct: 60, cashBufferPct: 10, orMinutes: 15, maxExtension: 1, buyPct: 0, sellPct: 0, perShare: 0.005, blocked: "", watchlist: ["TSLA", "NVDA", "AMD"] },
+    maxPositionPct: 60, cashBufferPct: 10, orMinutes: 15, maxExtension: 1, buyPct: 0, sellPct: 0, perShare: 0.005, minOrder: 1, maxPct: 1, nextExit: "23:30", flat: "next", blocked: "", watchlist: ["TSLA", "NVDA", "AMD"] },
 };
 const FIELDS = [
   ["equity", "Modal total", "num"], ["cash", "Kas tersedia", "num"], ["maxLossPerTrade", "Rugi maks per trade", "num"],
@@ -265,7 +265,9 @@ const FIELDS = [
   ["maxPositionPct", "Maks % modal per posisi", "num"], ["cashBufferPct", "Cadangan kas %", "num"], ["orMinutes", "Opening range (menit)", "num"],
   ["maxExtension", "Maks jarak breakout (× lebar OR, 0 = mati)", "num"],
   ["buyPct", "Fee beli %", "num"], ["sellPct", "Fee jual % (incl. pajak)", "num"], ["perShare", "Komisi per lembar", "num"],
+  ["minOrder", "Komisi min per order", "num"], ["maxPct", "Komisi maks % nilai order", "num"],
   ["blocked", "Kode diblokir (koma)", "text"],
+  ["nextExit", "Mode jual besok: jam beli/jual maks (WIB)", "text", "us"],
 ];
 const PROXIES = [
   (u) => `https://yahoo-proxy.indraanggriawan17.workers.dev/?url=${encodeURIComponent(u)}`,
@@ -286,7 +288,9 @@ const ST = () => S.settings[S.market];
 const nowSec = () => S.replayAt || Math.floor(Date.now() / 1000);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const pc = (x) => `${(x * 100).toFixed(1)}%`;
-const feesOf = (s) => ({ buyPct: +s.buyPct, sellPct: +s.sellPct, perShare: +s.perShare });
+const feesOf = (s) => ({ buyPct: +s.buyPct || 0, sellPct: +s.sellPct || 0, perShare: +s.perShare || 0, minOrder: +s.minOrder || 0, maxPct: +s.maxPct || 0 });
+const winOf = (date) => exitWindow(M(), date, selectedFlat(), ST().nextExit);
+const wibTxt = (date, min) => S.market === "idx" ? "" : ` (${hhmm(toWIB(M(), date, min).min)} WIB)`;
 const ls = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
@@ -335,6 +339,7 @@ async function loadRemote() {
     try {
       const snap = await getDoc(doc(S.db, "daytradeSettings", m));
       if (snap.exists()) S.settings[m] = { ...DEFAULTS[m], ...snap.data() };
+      if (m === "us" && !S.settings.us.v3) { S.settings.us.flat = "next"; S.settings.us.v3 = true; }
     } catch (e) { remoteWarn(e); }
   }
   S.trades = ls.get("dt_trades", []);
@@ -396,7 +401,7 @@ function tickClock() {
   const c = marketClock(M(), nowSec());
   $("clockDot").className = "dot " + c.state;
   $("clockLabel").textContent = (S.replayAt ? "PUTAR ULANG · " : "") + c.label;
-  $("clockTime").textContent = `${c.date} ${hhmm(c.min)} ${M().tzLabel}`;
+  $("clockTime").textContent = `${c.date} ${hhmm(c.min)} ${M().tzLabel}${wibTxt(c.date, c.min)}`;
   return c;
 }
 
@@ -441,28 +446,35 @@ $("btnImport").onclick = async () => {
   $("scanMsg").innerHTML = `<div class="msg info">Dari Radar IDX (${note.join(", ")}, hanya dibaca): ${fresh.length ? "ditambah " + fresh.join(", ") : "tidak ada kode baru"}.</div>`;
 };
 
-let scanning = false;
+// Scan terbaru selalu menang: scan lama berhenti kalau waktu replay / tab / mode berubah di tengah jalan.
+let scanGen = 0, scanning = false;
 async function runScan(force = false) {
-  if (scanning) return;
+  const my = ++scanGen;
+  while (scanning) { await new Promise(r => setTimeout(r, 100)); if (my !== scanGen) return; }
   scanning = true; $("btnScan").disabled = true;
+  try { await scanOnce(my, force); } finally { scanning = false; $("btnScan").disabled = false; }
+}
+async function scanOnce(my, force) {
   const m = M(), st = ST(), { date } = localParts(nowSec(), m.tz);
   const list = st.watchlist || [];
   for (const sym of list) {
+    if (my !== scanGen) return;
     const key = `${S.market}:${sym}`;
     S.scan[key] = { ...(S.scan[key] || {}), loading: true };
     renderScan();
     try {
       const parsed = await parsedOf(sym, force);
-      const e = evaluateEntry(parsed, m, date, { orMinutes: +st.orMinutes, flat: selectedFlat(), maxExtension: +st.maxExtension });
+      const e = evaluateEntry(parsed, m, date, { orMinutes: +st.orMinutes, flat: selectedFlat(), exitAt: st.nextExit, maxExtension: +st.maxExtension });
       const day = parsed.days[date];
       const prev = prevCloseOf(parsed, date);
       const last = day?.bars.at(-1)?.c ?? parsed.days[parsed.dates.at(-1)]?.close;
+      if (my !== scanGen) return;
       S.scan[key] = { e, last, chg: prev && last ? (last / prev - 1) * 100 : null, at: Date.now() };
     } catch (err) { S.scan[key] = { error: err.message }; }
+    if (my !== scanGen) return;
     renderScan();
   }
   $("scanTime").textContent = `Scan terakhir ${new Date().toLocaleTimeString("id-ID")} · data Yahoo bisa tertunda beberapa menit`;
-  scanning = false; $("btnScan").disabled = false;
 }
 $("btnScan").onclick = () => runScan(true);
 
@@ -525,12 +537,15 @@ $("pFlat").addEventListener("change", () => {
   runScan(false).then(() => S.selected && computePlan(false));
 });
 
+// trade hari ini; risiko & kas terpakai menghitung SEMUA posisi yang masih terbuka (termasuk yang dibawa semalam)
 function todayStats(date) {
-  const ts = S.trades.filter(t => t.market === S.market && t.date === date);
+  const mine = S.trades.filter(t => t.market === S.market && !t.replay === !S.replayAt);
+  const openT = mine.filter(t => t.result?.status !== "closed" && (t.flatDate || t.date) >= date && t.date <= date);
   return {
-    trades: ts.length,
-    riskUsed: ts.filter(t => !t.result || t.result.status !== "closed").reduce((a, t) => a + (t.maxLoss || 0), 0),
-    realized: ts.filter(t => t.result?.status === "closed").reduce((a, t) => a + t.result.pnl, 0),
+    trades: mine.filter(t => t.date === date).length,
+    riskUsed: openT.reduce((a, t) => a + (t.maxLoss || 0), 0),
+    openValue: openT.reduce((a, t) => a + (t.value || 0), 0),
+    realized: mine.filter(t => t.result?.status === "closed" && (t.result.exitDate || t.date) === date).reduce((a, t) => a + t.result.pnl, 0),
   };
 }
 
@@ -541,26 +556,31 @@ async function computePlan(force) {
   try {
     const parsed = await parsedOf(sym, force);
     const flatId = selectedFlat();
-    const flatMin = flatMinute(m, date, flatId);
-    if (flatMin == null) throw new Error(`${date}: ${m.holiday(date) || "bukan hari bursa"}. Pakai "Putar ulang hari lalu" di Pengaturan untuk latihan.`);
+    const win = winOf(date);
+    if (!win) throw new Error(`${date}: ${m.holiday(date) || "bukan hari bursa"}. Pakai "Putar ulang hari lalu" di Pengaturan untuk latihan.`);
+    const { flatMin, flatDate } = win;
     const fees = feesOf(st);
-    const e = evaluateEntry(parsed, m, date, { orMinutes: +st.orMinutes, flat: flatId, maxExtension: +st.maxExtension });
+    const e = evaluateEntry(parsed, m, date, { orMinutes: +st.orMinutes, lastEntryMin: win.lastEntryMin, maxExtension: +st.maxExtension });
     let entry = +$("pEntry").value || e.entry, fromMin = e.barMin, entryNote;
     if (+$("pEntry").value) entryNote = `Entry manual ${m.price(entry)}`;
-    else if (e.status === "triggered") entryNote = `Trigger ${e.time}: close ${m.price(e.entry)} di atas OR high ${m.price(e.or.high)}`;
+    else if (e.status === "triggered") entryNote = `Trigger ${e.time}${wibTxt(date, e.barMin + 5)}: close ${m.price(e.entry)} di atas OR high ${m.price(e.or.high)}`;
     else if (e.status === "waiting" && e.level) { entry = e.level + m.tick(e.level); entryNote = `Belum trigger. Rencana kalau bar ditutup di ${m.price(entry)} (1 tick di atas OR high)`; }
     else if (e.status === "extended") throw new Error(`${e.note}. Isi "Entry manual" kalau tetap ingin menghitung rencana.`);
     else throw new Error(e.note);
-    if (fromMin == null) { const bars = parsed.days[date]?.bars || []; fromMin = bars.length ? bars.at(-1).min : flatMin - 30; }
+    if (fromMin == null) { const bars = parsed.days[date]?.bars || []; fromMin = bars.length ? bars.at(-1).min : win.lastEntryMin; }
     const prevClose = prevCloseOf(parsed, date);
-    const plan = planExit({ market: m, date, entry, or: e.or, stopRule: $("pStop").value, targetRule: $("pTarget").value, prevClose, fees });
-    const tm = timeMachine({ market: m, date, parsed, plan, fromMin, flatMin, prevClose, fees });
-    const hist = historyReplay({ market: m, parsed, date, orMinutes: +st.orMinutes, stopRule: $("pStop").value, targetRule: $("pTarget").value, flatPreset: flatId, fees, maxExtension: +st.maxExtension });
-    const settings = { ...st, blocked: String(st.blocked || "").split(",").map(s => s.trim()).filter(Boolean) };
+    const today = todayStats(date);
+    const settings = { ...st, cash: Math.max(0, +st.cash - today.openValue), blocked: String(st.blocked || "").split(",").map(s => s.trim()).filter(Boolean) };
+    const rules = { market: m, date, entry, or: e.or, stopRule: $("pStop").value, targetRule: $("pTarget").value, prevClose, fees };
+    let plan = planExit({ ...rules, maxLossPerTrade: +st.maxLossPerTrade });
     const order = sizeOrder({ market: m, symbol: sym, plan, account: settings, fees });
+    if (order.ok && order.shares !== plan.refShares) plan = planExit({ ...rules, refShares: order.shares });
+    const tm = timeMachine({ market: m, date, parsed, plan, fromMin, flatMin, flatDate, prevClose, fees });
+    const hist = historyReplay({ market: m, parsed, date, orMinutes: +st.orMinutes, stopRule: $("pStop").value, targetRule: $("pTarget").value, flatPreset: flatId, exitAt: st.nextExit, fees, maxExtension: +st.maxExtension, maxLossPerTrade: +st.maxLossPerTrade });
+    const gap = win.overnight ? gapStats(parsed, m, date) : null;
     const clock = marketClock(m, now);
-    const risk = riskCheck({ market: m, order, plan, settings, today: todayStats(date), clock, flatMin, now });
-    S.plan = { sym, date, e, plan, tm, hist, order, risk, flatMin, fromMin, flatId, entryNote };
+    const risk = riskCheck({ market: m, order, plan, settings, today, clock, win, now, earningsChecked: S.earnFor === `${S.market}:${sym}:${date}`, gap });
+    S.plan = { sym, date, e, plan, tm, hist, order, risk, flatMin, flatDate, win, gap, fromMin, flatId, entryNote };
     renderPlan();
   } catch (err) {
     S.plan = null;
@@ -570,7 +590,8 @@ async function computePlan(force) {
 }
 
 function renderPlan() {
-  const m = M(), P = m.price, { e, plan, tm, hist, order, risk, flatMin, entryNote } = S.plan;
+  const m = M(), P = m.price, { e, plan, tm, hist, order, risk, flatMin, flatDate, win, gap, entryNote, sym, date } = S.plan;
+  const sellAt = `${win.overnight ? dayLabel(flatDate) + " " : ""}${hhmm(flatMin + 5)} ${m.tzLabel}${wibTxt(flatDate, flatMin + 5)}`;
   const pt = tm.pTarget * 100, ps = tm.pStop * 100, pn = tm.pNeither * 100;
   const histRows = hist.trades.slice(-8).reverse().map(t => `<tr><td>${t.date.slice(5)}</td><td>${t.time}</td><td class="mono">${P(t.entry)}</td>
     <td class="${t.outcome === "target" ? "pos" : t.outcome === "stop" ? "neg" : "muted"}">${{ target: "target", stop: "stop", close: "jual waktu" }[t.outcome]}</td><td class="mono ${t.R > 0 ? "pos" : "neg"}">${t.R > 0 ? "+" : ""}${t.R}</td></tr>`).join("");
@@ -586,14 +607,15 @@ function renderPlan() {
         <dt>Risiko / lembar</dt><dd>${P(plan.risk)}</dd>
         <dt>R kotor → bersih fee</dt><dd>${plan.rGross} → <b>${plan.rNet}</b></dd>
         ${plan.limits ? `<dt>ARB · ARA</dt><dd>${P(plan.limits.arb)} · ${P(plan.limits.ara)}</dd>` : ""}
-        <dt>Jual paling lambat</dt><dd>${hhmm(flatMin + 5)} ${m.tzLabel}</dd>
+        <dt>Jual paling lambat</dt><dd>${sellAt}</dd>
+        ${gap ? `<dt>Gap semalam (${gap.n} hari)</dt><dd>±${(gap.avgAbs * 100).toFixed(1)}% · terburuk ${((gap.worst - 1) * 100).toFixed(1)}%</dd>` : ""}
       </dl>
       ${plan.limits ? `<div class="faint" style="margin-top:6px">${esc(plan.limits.rule)}</div>` : ""}
       ${plan.warnings.map(w => `<div class="msg err">${esc(w)}</div>`).join("")}
     </div>
     <div class="box">
       <h3>Time Machine · ${tm.replays.toLocaleString("id-ID")} replay</h3>
-      <div class="faint">Sisa hari (${tm.from}–${tm.until}) diulang dari pola ${tm.sessions} sesi terakhir saham ini.</div>
+      <div class="faint">${tm.overnight ? `Sisa malam ini, gap semalam (dari ${tm.gapPairs} gap nyata), lalu besok s.d. ${esc(tm.until)} — diulang dari pola ${tm.sessions} sesi terakhir saham ini.` : `Sisa hari (${tm.from}–${tm.until}) diulang dari pola ${tm.sessions} sesi terakhir saham ini.`}</div>
       <div class="probbar">
         <div class="pb-t" style="width:${pt}%">${pt >= 8 ? pt.toFixed(0) + "%" : ""}</div>
         <div class="pb-s" style="width:${ps}%">${ps >= 8 ? ps.toFixed(0) + "%" : ""}</div>
@@ -602,6 +624,7 @@ function renderPlan() {
       <div class="legend"><span class="pos">■ target duluan ${pc(tm.pTarget)}</span><span class="neg">■ stop duluan ${pc(tm.pStop)}</span><span>■ tidak kena ${pc(tm.pNeither)}</span></div>
       <dl class="kv" style="margin-top:8px">
         <dt>Rata-rata R</dt><dd class="${tm.avgR >= 0 ? "pos" : "neg"}">${tm.avgR > 0 ? "+" : ""}${tm.avgR}</dd>
+        ${tm.overnight ? `<dt>Stop tembus karena gap</dt><dd class="neg">${pc(tm.pGapStop)}</dd><dt>5% terburuk</dt><dd class="neg">${tm.worstR5}R</dd>` : ""}
         <dt>Harga saat jual (median)</dt><dd>${P(tm.medianClose)}</dd>
         <dt>Rentang 5%–95%</dt><dd>${P(tm.p5Close)} – ${P(tm.p95Close)}</dd>
       </dl>
@@ -609,7 +632,7 @@ function renderPlan() {
     </div>
     <div class="box">
       <h3>Sejarah aturan yang sama</h3>
-      <div style="margin-bottom:6px">Dari ${hist.sessions} sesi: trigger <b>${hist.triggered}x</b>${hist.skippedExtended ? ` <span class="faint">(+${hist.skippedExtended} dilewati, terlalu jauh)</span>` : ""} → <span class="pos">target ${hist.target}</span> · <span class="neg">stop ${hist.stop}</span> · jual waktu ${hist.close}.
+      <div style="margin-bottom:6px">Dari ${hist.sessions} sesi: trigger <b>${hist.triggered}x</b>${hist.skippedExtended ? ` <span class="faint">(+${hist.skippedExtended} dilewati, terlalu jauh)</span>` : ""} → <span class="pos">target ${hist.target}</span> · <span class="neg">stop ${hist.stop}</span> · jual waktu ${hist.close}${hist.gapStops ? ` <span class="faint">(${hist.gapStops} stop karena gap)</span>` : ""}.
         Rata-rata R <b class="${(hist.avgR ?? 0) >= 0 ? "pos" : "neg"}">${hist.avgR ?? "-"}</b></div>
       ${histRows ? `<table><thead><tr><th>Tgl</th><th>Jam</th><th>Entry</th><th>Hasil</th><th>R</th></tr></thead><tbody>${histRows}</tbody></table>` : `<div class="faint">Belum pernah trigger.</div>`}
     </div>
@@ -620,12 +643,15 @@ function renderPlan() {
         <dt>Nilai posisi</dt><dd>${m.money(order.value)}</dd>
         <dt>Rugi maks di stop</dt><dd class="neg">${m.money(order.maxLoss)}</dd>
         <dt>Untung di target</dt><dd class="pos">${m.money(order.expectedWin)}</dd>
+        <dt>Fee pulang-pergi</dt><dd>${m.money(order.fees)} · R bersih ${order.rNet}</dd>
         <dt>Dibatasi oleh</dt><dd style="font-family:inherit">${esc(order.decidedBy)}</dd></dl>` : `<div class="msg err">${esc(order.reason)}</div>`}
+      ${win.overnight ? `<label style="display:grid;grid-template-columns:18px 1fr;gap:6px;align-items:start;margin:4px 0 10px;font-size:13px"><input type="checkbox" id="pEarn" style="margin-top:3px" ${S.earnFor === `${S.market}:${sym}:${date}` ? "checked" : ""}><span>
+        Sudah cek: tidak ada laporan keuangan ${esc(sym)} malam ini s.d. jual (<a href="https://finance.yahoo.com/quote/${encodeURIComponent(m.yahoo(sym))}/" target="_blank" rel="noopener">cek di Yahoo</a>)</span></label>` : ""}
       <ul class="checks">${risk.checks.map(c => `<li><span class="${c.ok ? "pos" : "neg"}">${c.ok ? "✓" : "✗"}</span><span>${esc(c.label)}</span><span class="d">${esc(c.detail)}</span></li>`).join("")}</ul>
     </div>
     <div class="box">
       <h3>Tiket order (manual)</h3>
-      ${order.ok ? `<pre class="ticket" id="ticketText">${esc(ticketText({ market: m, order, flatMin }))}</pre>
+      ${order.ok ? `<pre class="ticket" id="ticketText">${esc(ticketText({ market: m, order, win, date }))}</pre>
       <div class="row" style="margin-top:8px">
         <button class="btn" id="btnCopy">Salin</button>
         <button class="btn primary" id="btnRecord" ${risk.pass ? "" : "disabled"}>Catat trade (paper)</button>
@@ -634,6 +660,7 @@ function renderPlan() {
     </div>`;
   const cp = $("btnCopy"); if (cp) cp.onclick = () => navigator.clipboard?.writeText($("ticketText").textContent).then(() => (cp.textContent = "Tersalin"));
   const rec = $("btnRecord"); if (rec) rec.onclick = recordTrade;
+  const ec = $("pEarn"); if (ec) ec.onchange = () => { S.earnFor = ec.checked ? `${S.market}:${sym}:${date}` : null; computePlan(false); };
 }
 
 async function recordTrade() {
@@ -641,8 +668,8 @@ async function recordTrade() {
   const t = {
     market: S.market, symbol: p.order.symbol, date: p.date, mode: "paper",
     entry: p.plan.entry, stop: p.plan.stop, target: p.plan.target, units: p.order.units, shares: p.order.shares,
-    maxLoss: p.order.maxLoss, value: p.order.value, entryMin: p.fromMin, flatMin: p.flatMin, flat: p.flatId,
-    stopRule: p.plan.stopRule, targetRule: p.plan.targetRule, rNet: p.plan.rNet,
+    maxLoss: p.order.maxLoss, value: p.order.value, entryMin: p.fromMin, flatMin: p.flatMin, flatDate: p.flatDate, flat: p.flatId,
+    overnight: !!p.win.overnight, stopRule: p.plan.stopRule, targetRule: p.plan.targetRule, rNet: p.order.rNet ?? p.plan.rNet,
     tm: { pTarget: p.tm.pTarget, pStop: p.tm.pStop, avgR: p.tm.avgR },
     createdAt: new Date().toISOString(), replay: !!S.replayAt,
   };
@@ -687,9 +714,9 @@ function renderJournal() {
     const r = t.result;
     const res = !r ? `<span class="faint">belum dicek</span>` : r.status === "open" ? `<span class="tag wait">BERJALAN</span>`
       : r.status === "error" ? `<span class="tag err" title="${esc(r.note)}">ERROR</span>`
-      : `<span class="${r.outcome === "target" ? "pos" : r.outcome === "stop" ? "neg" : "muted"}">${{ target: "target", stop: "stop", flat: "jual waktu" }[r.outcome]} ${m.price(r.exit)} · ${r.time}</span>`;
+      : `<span class="${r.outcome === "target" ? "pos" : r.outcome === "stop" ? "neg" : "muted"}">${{ target: "target", stop: "stop", flat: "jual waktu" }[r.outcome]}${r.gap ? " (gap)" : ""} ${m.price(r.exit)} · ${r.exitDate && r.exitDate !== t.date ? dayLabel(r.exitDate) + " " : ""}${r.time}</span>`;
     const pl = r?.status === "closed" ? `<span class="mono ${r.pnl >= 0 ? "pos" : "neg"}">${m.money(r.pnl)}<br><span class="faint">${r.R > 0 ? "+" : ""}${r.R}R</span></span>` : "";
-    return `<tr><td>${t.date}${t.replay ? ' <span class="tag paper">ULANG</span>' : ""}</td><td><b>${esc(t.symbol)}</b></td>
+    return `<tr><td>${t.date}${t.overnight ? ' <span class="tag wait">SEMALAM</span>' : ""}${t.replay ? ' <span class="tag paper">ULANG</span>' : ""}</td><td><b>${esc(t.symbol)}</b></td>
       <td class="mono">${m.id === "idx" ? t.units + " lot" : t.shares + " lbr"} @ ${m.price(t.entry)}</td>
       <td class="mono hide-m">${m.price(t.stop)} · ${m.price(t.target)}</td><td>${res}</td><td>${pl}</td>
       <td><button class="btn small danger" data-del="${i}" title="Hapus">×</button></td></tr>`;
@@ -700,7 +727,7 @@ function renderJournal() {
 function renderSettings() {
   const st = ST();
   $("settingsMarket").textContent = `(${M().name})`;
-  $("settingsForm").innerHTML = FIELDS.map(([k, label, type]) =>
+  $("settingsForm").innerHTML = FIELDS.filter(([, , , mk]) => !mk || mk === S.market).map(([k, label, type]) =>
     `<label class="f">${label}<input data-k="${k}" type="${type === "num" ? "number" : "text"}" step="any" value="${esc(st[k])}"></label>`).join("");
 }
 $("btnSaveSettings").onclick = async () => {

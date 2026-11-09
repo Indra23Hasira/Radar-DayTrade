@@ -7,6 +7,9 @@ Radar US / Radar IDX yang dipakai untuk swing. Pola sama dengan app lain: HTML s
 Alur satu trade: **watchlist → scan ORB → rencana stop/target → Time Machine → sizing (lot) →
 risk check PASS/BLOCK → tiket order manual → jurnal paper (hasil dihitung otomatis)**.
 
+Tab US punya mode **jual besok** (default): beli malam ini s.d. 23:30 WIB, jual paling lambat 23:30 WIB
+besoknya, dengan simulasi gap semalam dan komisi IBKR Pro Fixed (min $1, maks 1%).
+
 Tidak ada order yang dikirim ke broker. Bukan saran keuangan.
 
 ## Isi
@@ -14,6 +17,7 @@ Tidak ada order yang dikirim ke broker. Bukan saran keuangan.
 ```
 index.html              app (tab IDX & US), login Firebase, jurnal
 lib/markets.js          aturan pasar: sesi BEI/NYSE, libur, lot, fraksi, ARA/ARB per tanggal, fee
+lib/time.js             konversi zona waktu (WIB/ET, DST)
 lib/engine.js           ORB, rencana exit, Time Machine, riwayat aturan, sizing, risk gate, evaluasi trade
 cli.js                  versi terminal mesin yang sama (dipakai skill Claude Code)
 tests/                  tes offline dengan data Yahoo asli (npm test)
