@@ -1,12 +1,12 @@
-// Tempel DUA blok "match" di bawah ini ke Firestore Rules project radar-idx-hasira,
-// di DALAM blok `match /databases/{database}/documents { ... }` yang sudah ada.
-// Jangan hapus rules lain milik Radar IDX.
+// Rules Radar-DayTrade (project radar-idx-hasira).
+// GANTI dua blok lama (daytradeSettings & daytradeTrades) dengan SATU blok di bawah ini,
+// di DALAM `match /databases/{database}/documents { ... }`. Jangan hapus rules Radar IDX lainnya.
+// Blok ini mencakup semua koleksi yang namanya diawali "daytrade":
+// daytradeSettings, daytradeTrades, daytradeSignals, daytradeRunner.
+// Runner GitHub Actions memakai service account (Admin SDK), jadi tidak terpengaruh rules.
 
-    match /daytradeSettings/{market} {
-      allow read, write: if request.auth != null
-        && request.auth.token.email == "indraanggriawan17@gmail.com";
-    }
-    match /daytradeTrades/{tradeId} {
-      allow read, write: if request.auth != null
+    match /{col}/{docId} {
+      allow read, write: if col.matches('daytrade.*')
+        && request.auth != null
         && request.auth.token.email == "indraanggriawan17@gmail.com";
     }

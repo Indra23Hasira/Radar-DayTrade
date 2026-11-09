@@ -1,0 +1,67 @@
+name: DayTrade IDX otomatis (paper)
+
+# Runner otomatis: scan ORB, jurnal paper di Firestore, sinyal ke Telegram. Tidak pernah order ke broker.
+# Jadwal cron dalam UTC. Jadwal cadangan (+20/25 menit) hanya jalan kalau jadwal utama tertunda/terlewat.
+on:
+  schedule:
+    - cron: "15 1 * * 1-5"   # bagian 1 (08:15 WIB, sesi 1)
+    - cron: "40 1 * * 1-5"  # cadangan bagian 1
+    - cron: "45 5 * * 1-5"   # bagian 2 (12:45 WIB, sesi 2)
+    - cron: "5 6 * * 1-5"  # cadangan bagian 2
+  workflow_dispatch:
+    inputs:
+      part:
+        description: "Bagian (1 atau 2)"
+        default: "1"
+      dry_run:
+        description: "Uji tanpa menyimpan & tanpa Telegram (true/false)"
+        default: "false"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daytrade-idx
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Pasang firebase-admin
+        working-directory: runner
+        run: npm install --no-audit --no-fund
+
+      - name: Tentukan bagian
+        id: part
+        run: |
+          case "${{ github.event.schedule }}" in
+            "15 1 * * 1-5"|"40 1 * * 1-5") echo "part=1" >> "$GITHUB_OUTPUT" ;;
+            "45 5 * * 1-5"|"5 6 * * 1-5") echo "part=2" >> "$GITHUB_OUTPUT" ;;
+            *) echo "part=${{ inputs.part || '1' }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Jalankan runner
+        run: node runner/run.js --market idx --part ${{ steps.part.outputs.part }} ${{ inputs.dry_run == 'true' && '--dry' || '' }}
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Simpan arsip bar 5 menit
+        if: always() && inputs.dry_run != 'true'
+        run: |
+          git config user.name "radar-daytrade-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ 2>/dev/null || exit 0
+          git diff --cached --quiet && exit 0
+          git commit -q -m "Arsip bar IDX $(date -u +%F) bagian ${{ steps.part.outputs.part }}"
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin main && exit 0; sleep 5; done
+          echo "push arsip gagal"

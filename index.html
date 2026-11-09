@@ -106,6 +106,9 @@
   .msg.err{ background:rgba(242,84,91,.1); color:var(--negative); } .msg.info{ background:rgba(79,209,197,.08); color:var(--cyan); }
   details summary{ cursor:pointer; color:var(--text-dim); font-size:13px; }
   .hidden{ display:none !important; }
+  h3.sub{ font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); font-weight:600; margin:16px 0 8px; }
+  .curve{ width:100%; height:130px; display:block; background:var(--panel-alt); border:1px solid var(--border-soft); border-radius:var(--radius); }
+  .verdict-tag{ font-size:12px; font-weight:700; padding:2px 10px; border-radius:3px; }
 
   #loginOverlay{ position:fixed; inset:0; background:rgba(5,7,10,.94); display:flex; align-items:center; justify-content:center; z-index:50; padding:16px; }
   .login{ width:100%; max-width:340px; display:grid; gap:10px; }
@@ -150,9 +153,31 @@
   <div class="banner"><b>Mode paper.</b> Aplikasi ini tidak pernah mengirim order. Tiket di bawah dieksekusi manual di aplikasi broker setelah Anda yakin. Bukan saran keuangan; kebanyakan day trader rugi.
     <span id="usNote" class="hidden"> Tab US: data Yahoo bisa tertunda; komisi mengikuti IBKR Pro Fixed (min $1, maks 1%). Mode "jual besok" membawa posisi semalam — stop tidak melindungi dari gap.</span></div>
 
+  <section class="card" id="autoCard">
+    <div class="card-h">
+      <h2>Mode otomatis (paper)</h2>
+      <div class="row"><span class="pill"><span class="dot" id="autoDot"></span><span id="autoStatus">memuat…</span></span><button class="btn small" id="btnAutoRefresh">Muat ulang</button></div>
+    </div>
+    <div class="card-b">
+      <div class="faint" id="autoInfo"></div>
+      <h3 class="sub">Sinyal <span id="autoSigDate"></span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Jam</th><th>Saham</th><th>Status</th><th>Rencana</th><th class="hide-m">Alasan / hasil</th></tr></thead>
+          <tbody id="autoSigBody"><tr><td colspan="5" class="empty">Belum ada sinyal.</td></tr></tbody>
+        </table>
+      </div>
+      <h3 class="sub">Rapor kelayakan otomatis <span id="autoVerdict"></span></h3>
+      <div class="stats" id="autoStats"></div>
+      <div id="autoCurve"></div>
+      <ul class="checks" id="autoCriteria" style="margin-top:10px"></ul>
+      <div class="faint" style="margin-top:8px">Semua sinyal yang lolos risk check dicatat otomatis di harga saat terdeteksi (+slippage), tanpa pilih-pilih. Kriteria lulus ditetapkan sebelum forward test dimulai.</div>
+    </div>
+  </section>
+
   <section class="card">
     <div class="card-h">
-      <h2>Watchlist & Scan ORB</h2>
+      <h2>Watchlist & Scan ORB (manual)</h2>
       <div class="row">
         <label class="row faint"><input type="checkbox" id="autoRefresh"> refresh tiap 60 dtk saat bursa buka</label>
         <label class="row faint" title="Menentukan batas jual dan jendela entry untuk scan & rencana">Mode <select id="pFlat"></select></label>
@@ -198,7 +223,7 @@
   <section class="card">
     <div class="card-h">
       <h2>Jurnal trade</h2>
-      <div class="row"><button class="btn" id="btnEvalTrades">Perbarui hasil</button></div>
+      <div class="row"><select id="jFilter"><option value="all">Semua</option><option value="auto">Otomatis</option><option value="manual">Manual</option></select><button class="btn" id="btnEvalTrades">Perbarui hasil</button></div>
     </div>
     <div class="card-b">
       <div class="stats" id="journalStats"></div>
@@ -234,7 +259,7 @@
     </details>
   </section>
 
-  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.3 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
+  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.4 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
 </main>
 
 <script type="module">
@@ -243,6 +268,8 @@ import {
   marketClock, chartUrl, parseChart, evaluateEntry, planExit, timeMachine, historyReplay, sizeOrder,
   riskCheck, ticketText, prevCloseOf, hhmm, localParts, evaluateTrade, gapStats, toWIB, dayLabel,
 } from "./lib/engine.js";
+import { DEFAULTS } from "./lib/defaults.js";
+import { report, CRITERIA, verdictOf, fmtR } from "./lib/report.js";
 
 // ---------------------------------------------------------------- konfigurasi
 const firebaseConfig = {
@@ -253,12 +280,6 @@ const firebaseConfig = {
   messagingSenderId: "675342054884",
   appId: "1:675342054884:web:cd557eacc3b1da649c03f1",
 };
-const DEFAULTS = {
-  idx: { equity: 10000000, cash: 10000000, maxLossPerTrade: 100000, dailyLossLimit: 300000, maxTradesPerDay: 3, minRR: 1.2,
-    maxPositionPct: 50, cashBufferPct: 10, orMinutes: 15, maxExtension: 1, buyPct: 0.15, sellPct: 0.25, perShare: 0, minOrder: 0, maxPct: 0, blocked: "", watchlist: ["BBRI", "BBCA", "TPIA", "EMAS", "ADRO"] },
-  us: { equity: 5000, cash: 5000, maxLossPerTrade: 50, dailyLossLimit: 150, maxTradesPerDay: 3, minRR: 1.2,
-    maxPositionPct: 60, cashBufferPct: 10, orMinutes: 15, maxExtension: 1, buyPct: 0, sellPct: 0, perShare: 0.005, minOrder: 1, maxPct: 1, nextExit: "23:30", flat: "next", blocked: "", watchlist: ["TSLA", "NVDA", "AMD"] },
-};
 const FIELDS = [
   ["equity", "Modal total", "num"], ["cash", "Kas tersedia", "num"], ["maxLossPerTrade", "Rugi maks per trade", "num"],
   ["dailyLossLimit", "Batas rugi harian", "num"], ["maxTradesPerDay", "Maks trade per hari", "num"], ["minRR", "Min reward:risk (bersih fee)", "num"],
@@ -268,6 +289,10 @@ const FIELDS = [
   ["minOrder", "Komisi min per order", "num"], ["maxPct", "Komisi maks % nilai order", "num"],
   ["blocked", "Kode diblokir (koma)", "text"],
   ["nextExit", "Mode jual besok: jam beli/jual maks (WIB)", "text", "us"],
+  ["autoEnabled", "Mode otomatis aktif", "bool"], ["autoTopN", "Otomatis: jumlah kandidat dipantau", "num"],
+  ["minAvgValue", "Otomatis: min nilai transaksi rata-rata 20 hari (Rp)", "num", "idx"], ["minPrice", "Otomatis: harga minimum", "num"],
+  ["slippage", "Otomatis: slippage entry (tick)", "num", "idx"], ["slippage", "Otomatis: slippage entry (%)", "num", "us"],
+  ["autoStopRule", "Otomatis: stop (or_mid / or_low / pct:1)", "text"], ["autoTargetRule", "Otomatis: target (mis. 2R)", "text"],
 ];
 const PROXIES = [
   (u) => `https://yahoo-proxy.indraanggriawan17.workers.dev/?url=${encodeURIComponent(u)}`,
@@ -310,7 +335,7 @@ async function initFirebase() {
       S.user = user;
       $("loginOverlay").classList.toggle("hidden", !!user);
       $("userEmail").textContent = user?.email || "";
-      if (user) { await loadRemote(); renderAll(); runScan(false); evalTrades(); }
+      if (user) { await loadRemote(); renderAll(); runScan(false); evalTrades(); loadAuto(); }
     });
   } catch (e) {
     showLoginErr("Gagal memuat Firebase: " + e.message);
@@ -539,7 +564,7 @@ $("pFlat").addEventListener("change", () => {
 
 // trade hari ini; risiko & kas terpakai menghitung SEMUA posisi yang masih terbuka (termasuk yang dibawa semalam)
 function todayStats(date) {
-  const mine = S.trades.filter(t => t.market === S.market && !t.replay === !S.replayAt);
+  const mine = S.trades.filter(t => t.market === S.market && !t.auto && !t.replay === !S.replayAt);
   const openT = mine.filter(t => t.result?.status !== "closed" && (t.flatDate || t.date) >= date && t.date <= date);
   return {
     trades: mine.filter(t => t.date === date).length,
@@ -682,7 +707,7 @@ async function recordTrade() {
 // ---------------------------------------------------------------- jurnal
 async function evalTrades() {
   const m = M();
-  const open = S.trades.filter(t => t.market === S.market && t.result?.status !== "closed");
+  const open = S.trades.filter(t => t.market === S.market && !t.auto && t.result?.status !== "closed");
   for (const t of open) {
     try {
       const parsed = parseChart(await fetchChart(t.symbol), m, Math.floor(Date.now() / 1000));
@@ -695,12 +720,15 @@ async function evalTrades() {
 $("btnEvalTrades").onclick = evalTrades;
 $("journalBody").addEventListener("click", async (e) => {
   const i = e.target.dataset.del; if (i == null) return;
-  const t = S.trades.filter(x => x.market === S.market)[+i];
+  const t = (S.jlist || [])[+i];
   if (t && confirm(`Hapus trade ${t.symbol} ${t.date}?`)) { await deleteTrade(t); renderJournal(); }
 });
 
+$("jFilter").onchange = () => renderJournal();
 function renderJournal() {
-  const m = M(), ts = S.trades.filter(t => t.market === S.market);
+  const f = $("jFilter").value;
+  const m = M(), ts = S.trades.filter(t => t.market === S.market && (f === "all" || (f === "auto") === !!t.auto));
+  S.jlist = ts;
   const closed = ts.filter(t => t.result?.status === "closed");
   const pnl = closed.reduce((a, t) => a + t.result.pnl, 0);
   const wins = closed.filter(t => t.result.pnl > 0).length;
@@ -716,10 +744,10 @@ function renderJournal() {
       : r.status === "error" ? `<span class="tag err" title="${esc(r.note)}">ERROR</span>`
       : `<span class="${r.outcome === "target" ? "pos" : r.outcome === "stop" ? "neg" : "muted"}">${{ target: "target", stop: "stop", flat: "jual waktu" }[r.outcome]}${r.gap ? " (gap)" : ""} ${m.price(r.exit)} · ${r.exitDate && r.exitDate !== t.date ? dayLabel(r.exitDate) + " " : ""}${r.time}</span>`;
     const pl = r?.status === "closed" ? `<span class="mono ${r.pnl >= 0 ? "pos" : "neg"}">${m.money(r.pnl)}<br><span class="faint">${r.R > 0 ? "+" : ""}${r.R}R</span></span>` : "";
-    return `<tr><td>${t.date}${t.overnight ? ' <span class="tag wait">SEMALAM</span>' : ""}${t.replay ? ' <span class="tag paper">ULANG</span>' : ""}</td><td><b>${esc(t.symbol)}</b></td>
+    return `<tr><td>${t.date}${t.auto ? ' <span class="tag trig">OTOMATIS</span>' : ""}${t.overnight ? ' <span class="tag wait">SEMALAM</span>' : ""}${t.replay ? ' <span class="tag paper">ULANG</span>' : ""}</td><td><b>${esc(t.symbol)}</b></td>
       <td class="mono">${m.id === "idx" ? t.units + " lot" : t.shares + " lbr"} @ ${m.price(t.entry)}</td>
       <td class="mono hide-m">${m.price(t.stop)} · ${m.price(t.target)}</td><td>${res}</td><td>${pl}</td>
-      <td><button class="btn small danger" data-del="${i}" title="Hapus">×</button></td></tr>`;
+      <td>${t.auto ? "" : `<button class="btn small danger" data-del="${i}" title="Hapus">×</button>`}</td></tr>`;
   }).join("") : `<tr><td colspan="7" class="empty">Belum ada trade. Catat dari panel rencana saat risk check PASS.</td></tr>`;
 }
 
@@ -727,12 +755,13 @@ function renderJournal() {
 function renderSettings() {
   const st = ST();
   $("settingsMarket").textContent = `(${M().name})`;
-  $("settingsForm").innerHTML = FIELDS.filter(([, , , mk]) => !mk || mk === S.market).map(([k, label, type]) =>
-    `<label class="f">${label}<input data-k="${k}" type="${type === "num" ? "number" : "text"}" step="any" value="${esc(st[k])}"></label>`).join("");
+  $("settingsForm").innerHTML = FIELDS.filter(([, , , mk]) => !mk || mk === S.market).map(([k, label, type]) => type === "bool"
+    ? `<label class="f">${label}<span class="row"><input data-k="${k}" type="checkbox" ${st[k] === false || st[k] === "false" ? "" : "checked"}> <span class="faint">${st[k] === false || st[k] === "false" ? "mati" : "nyala"}</span></span></label>`
+    : `<label class="f">${label}<input data-k="${k}" type="${type === "num" ? "number" : "text"}" step="any" value="${esc(st[k])}"></label>`).join("");
 }
 $("btnSaveSettings").onclick = async () => {
   const st = ST();
-  document.querySelectorAll("#settingsForm input").forEach(i => { st[i.dataset.k] = i.type === "number" ? Number(i.value) : i.value; });
+  document.querySelectorAll("#settingsForm input").forEach(i => { st[i.dataset.k] = i.type === "checkbox" ? i.checked : i.type === "number" ? Number(i.value) : i.value; });
   st.flat = selectedFlat();
   await saveSettings(S.market);
   $("settingsMsg").textContent = "Tersimpan " + new Date().toLocaleTimeString("id-ID");
@@ -763,8 +792,98 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   $("usNote").classList.toggle("hidden", S.market !== "us");
   renderAll();
   runScan(false);
+  loadAuto();
 });
 
+// ---------------------------------------------------------------- mode otomatis (dibaca dari runner)
+const STATUS_TAG = { pass: ["trig", "PASS"], block: ["block", "BLOCK"], extended: ["warn", "TERLALU JAUH"], late: ["exp", "TERLAMBAT"] };
+async function loadAuto() {
+  if (!S.db || !S.user) return;
+  const { doc, getDoc, collection, getDocs, query, where } = S.fs;
+  const m = M();
+  let runner = null, sigs = [], sigDate = localParts(Math.floor(Date.now() / 1000), m.tz).date;
+  try {
+    const r = await getDoc(doc(S.db, "daytradeRunner", S.market));
+    runner = r.exists() ? r.data() : null;
+    const q = async (d) => (await getDocs(query(collection(S.db, "daytradeSignals"), where("market", "==", S.market), where("date", "==", d)))).docs.map(x => x.data());
+    sigs = await q(sigDate);
+    if (!sigs.length && runner?.date && runner.date !== sigDate) { sigDate = runner.date; sigs = await q(sigDate); }
+    // trade otomatis bisa saja lebih baru dari yang dimuat saat login
+    const tq = await getDocs(query(collection(S.db, "daytradeTrades"), where("auto", "==", true), where("market", "==", S.market)));
+    const fresh = tq.docs.map(d => ({ id: d.id, ...d.data() }));
+    S.trades = S.trades.filter(t => !(t.auto && t.market === S.market)).concat(fresh);
+  } catch (e) {
+    $("autoStatus").textContent = "tidak bisa dibaca";
+    $("autoInfo").innerHTML = `<div class="msg err">Data otomatis tidak terbaca (${esc(e.code || e.message)}). Pastikan rules Firestore daytrade* sudah diperbarui (lihat SETUP-OTOMATIS.md).</div>`;
+    return;
+  }
+  renderAuto(runner, sigs, sigDate);
+  renderJournal();
+}
+$("btnAutoRefresh").onclick = loadAuto;
+setInterval(() => { if (document.visibilityState === "visible" && !S.replayAt) loadAuto(); }, 60_000);
+
+function renderAuto(runner, sigs, sigDate) {
+  const m = M(), P = m.price;
+  if (!runner) {
+    $("autoDot").className = "dot"; $("autoStatus").textContent = "belum pernah jalan";
+    $("autoInfo").textContent = "Runner GitHub Actions belum pernah berjalan untuk pasar ini. Ikuti SETUP-OTOMATIS.md di repo (service account + Telegram).";
+  } else {
+    const age = Math.round((Date.now() - Date.parse(runner.heartbeat)) / 60000);
+    const live = age <= 12 && !["selesai", "bagian selesai", "libur", "gagal"].includes(runner.state);
+    $("autoDot").className = "dot " + (runner.state === "gagal" ? "" : live ? "open" : "pre");
+    $("autoStatus").textContent = live ? `${runner.state} · ${age} mnt lalu` : `${runner.state} · ${new Date(runner.heartbeat).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}`;
+    const bits = [];
+    if (runner.universe) bits.push(`universe ${runner.universe} saham${runner.universeAsOf ? ` (likuiditas Radar IDX ${runner.universeAsOf})` : ""}`);
+    if (runner.candidates?.length) bits.push(`${runner.candidates.length} kandidat paling aktif dipantau`);
+    if (runner.dataLagMin != null) bits.push(`data terlambat ±${runner.dataLagMin} mnt`);
+    if (runner.state === "gagal" && runner.lastError) bits.push(`error: ${runner.lastError}`);
+    $("autoInfo").textContent = bits.join(" · ");
+  }
+  $("autoSigDate").textContent = sigDate ? `· ${dayLabel(sigDate)}` : "";
+  const byId = Object.fromEntries(S.trades.filter(t => t.auto).map(t => [t.id, t]));
+  sigs.sort((a, b) => (a.detectBar < b.detectBar ? -1 : 1));
+  $("autoSigBody").innerHTML = sigs.length ? sigs.map(x => {
+    const tag = STATUS_TAG[x.status] || ["exp", x.status];
+    const tr = x.tradeId && byId[x.tradeId];
+    const res = tr?.result?.status === "closed"
+      ? `<span class="${tr.result.R > 0 ? "pos" : "neg"}">${{ target: "target", stop: "stop", flat: "jual waktu" }[tr.result.outcome]}${tr.result.gap ? " (gap)" : ""} ${fmtR(tr.result.R)} · ${m.money(tr.result.pnl)}</span>`
+      : tr ? `<span class="tag wait">BERJALAN</span>` : `<span class="faint">${esc((x.reasons || [])[0] || "")}</span>`;
+    const plan = x.entry ? `<span class="mono">${m.id === "idx" ? (x.units ? x.units + " lot" : "-") : (x.shares ? x.shares + " lbr" : "-")} @ ${P(x.entry)}</span><br><span class="faint mono">SL ${P(x.stop)} · TP ${P(x.target)}</span>` : `<span class="faint">breakout ${P(x.signalPrice)}</span>`;
+    return `<tr><td class="mono">${esc(x.detectBar)}${m.id === "us" ? `<br><span class="faint">${hhmm(toWIB(m, x.date, +x.detectBar.slice(0, 2) * 60 + +x.detectBar.slice(3)).min)} WIB</span>` : ""}</td>
+      <td><b>${esc(x.symbol)}</b>${x.rel ? `<br><span class="faint">aktivitas ${x.rel}×</span>` : ""}</td>
+      <td><span class="tag ${tag[0]}">${tag[1]}</span></td><td>${plan}</td><td class="hide-m">${res}</td></tr>`;
+  }).join("") : `<tr><td colspan="5" class="empty">Belum ada sinyal${sigDate ? " " + dayLabel(sigDate) : ""}.</td></tr>`;
+  // rapor
+  const autoTrades = S.trades.filter(t => t.auto && t.market === S.market && !t.replay);
+  const r = report(autoTrades);
+  const v = verdictOf(r);
+  $("autoVerdict").innerHTML = `<span class="tag ${v === "LULUS" ? "pass" : "exp"}" style="margin-left:6px">${v}</span>`;
+  $("autoStats").innerHTML = `
+    <div class="stat"><div class="v">${r.n}${r.open ? ` <span class="faint">+${r.open}</span>` : ""}</div><div class="l">Trade selesai (+terbuka)</div></div>
+    <div class="stat"><div class="v">${r.n ? Math.round(r.winRate * 100) + "%" : "-"}</div><div class="l">Menang</div></div>
+    <div class="stat"><div class="v ${(r.avgR ?? 0) >= 0 ? "pos" : "neg"}">${r.avgR == null ? "-" : fmtR(r.avgR)}</div><div class="l">Rata-rata R</div></div>
+    <div class="stat"><div class="v ${r.totalPnl >= 0 ? "pos" : "neg"}">${r.n ? m.money(r.totalPnl) : "-"}</div><div class="l">Total P/L paper</div></div>
+    <div class="stat"><div class="v neg">${r.n ? "-" + r.maxDD.toFixed(1) + "R" : "-"}</div><div class="l">Drawdown terdalam</div></div>`;
+  $("autoCurve").innerHTML = r.curve.length >= 2 ? curveSvg(r.curve) : `<div class="faint">Kurva muncul setelah ada minimal 2 trade selesai.</div>`;
+  $("autoCriteria").innerHTML = CRITERIA.map(c => `<li><span class="${c.ok(r) ? "pos" : "neg"}">${c.ok(r) ? "✓" : "✗"}</span><span>${esc(c.label)}</span><span class="d">${esc(c.val(r))}</span></li>`).join("");
+}
+
+function curveSvg(curve) {
+  const W = 600, H = 130, pad = 8;
+  const ys = [0, ...curve.map(c => c.cumR)];
+  const lo = Math.min(...ys), hi = Math.max(...ys), span = hi - lo || 1;
+  const x = (i) => pad + (i / curve.length) * (W - 2 * pad);
+  const y = (v) => H - pad - ((v - lo) / span) * (H - 2 * pad);
+  const pts = [[x(0), y(0)], ...curve.map((c, i) => [x(i + 1), y(c.cumR)])].map(p => p.map(n => n.toFixed(1)).join(",")).join(" ");
+  const endUp = curve.at(-1).cumR >= 0;
+  return `<svg class="curve" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Kurva R kumulatif">
+    <line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--border)" stroke-dasharray="4 4"/>
+    <polyline points="${pts}" fill="none" stroke="${endUp ? "var(--positive)" : "var(--negative)"}" stroke-width="2" vector-effect="non-scaling-stroke"/>
+  </svg><div class="faint" style="margin-top:4px">R kumulatif ${fmtR(curve.at(-1).cumR)} dari ${curve.length} trade</div>`;
+}
+
+window.__dt = { S, renderAuto }; // untuk uji tampilan
 function renderAll() {
   fillFlat(); tickClock(); renderChips(); renderScan(); renderJournal(); renderSettings();
 }

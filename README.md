@@ -10,6 +10,10 @@ risk check PASS/BLOCK → tiket order manual → jurnal paper (hasil dihitung ot
 Tab US punya mode **jual besok** (default): beli malam ini s.d. 23:30 WIB, jual paling lambat 23:30 WIB
 besoknya, dengan simulasi gap semalam dan komisi IBKR Pro Fixed (min $1, maks 1%).
 
+**Mode otomatis (paper, v0.4)**: runner GitHub Actions memilih sendiri saham paling aktif (IDX: nilai transaksi ≥ Rp5 miliar
+dari Radar IDX; US: S&P 500 + Nasdaq-100), mencatat setiap sinyal yang lolos risk check sebagai trade paper, mengirim
+sinyal/hasil/ringkasan ke Telegram, dan menghitung rapor kelayakan. Setup sekali: lihat `SETUP-OTOMATIS.md`.
+
 Tidak ada order yang dikirim ke broker. Bukan saran keuangan.
 
 ## Isi
@@ -19,6 +23,10 @@ index.html              app (tab IDX & US), login Firebase, jurnal
 lib/markets.js          aturan pasar: sesi BEI/NYSE, libur, lot, fraksi, ARA/ARB per tanggal, fee
 lib/time.js             konversi zona waktu (WIB/ET, DST)
 lib/engine.js           ORB, rencana exit, Time Machine, riwayat aturan, sizing, risk gate, evaluasi trade
+runner/                 runner otomatis (GitHub Actions): universe, kandidat, sinyal, jurnal, Telegram
+.github/workflows/      jadwal runner IDX & US
+lib/report.js           rapor kelayakan & kriteria lulus
+lib/defaults.js         pengaturan bawaan bersama (app, CLI, runner)
 cli.js                  versi terminal mesin yang sama (dipakai skill Claude Code)
 tests/                  tes offline dengan data Yahoo asli (npm test)
 skills/radar-daytrade   skill Claude Code untuk IDX/US (memanggil cli.js)
@@ -34,7 +42,10 @@ firestore.rules.daytrade  rules tambahan untuk koleksi daytradeSettings & daytra
 | --- | --- | --- |
 | `daytradeSettings/{idx\|us}` | batas risiko, fee, watchlist | tulis |
 | `daytradeTrades/{id}` | trade paper + hasil | tulis |
+| `daytradeSignals/{pasar_tanggal_kode}` | semua sinyal otomatis (PASS/BLOCK/terlambat) | runner tulis, app baca |
+| `daytradeRunner/{idx\|us}` | status & heartbeat runner | runner tulis, app baca |
 | `topPicks`, `watchlist` | milik Radar IDX | **hanya dibaca** (tombol Import) |
+| `tickerRollingStats`, `systemMeta` | milik Radar IDX | **hanya dibaca** runner (universe IDX) |
 
 Kalau rules belum ditambah, app tetap jalan dan menyimpan di perangkat (localStorage).
 

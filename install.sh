@@ -16,7 +16,7 @@ mkdir -p "$APK"
 say "1/5 Salin project ke $DEST"
 mkdir -p "$DEST"
 if [ "$SRC" != "$DEST" ]; then
-  (cd "$SRC" && tar --exclude ".git" --exclude ".DS_Store" -cf - .) | (cd "$DEST" && tar -xf -)
+  (cd "$SRC" && tar --exclude ".git" --exclude ".DS_Store" --exclude "node_modules" -cf - .) | (cd "$DEST" && tar -xf -)
 fi
 echo "   ok"
 
@@ -81,6 +81,8 @@ else
 fi
 if git remote get-url origin >/dev/null 2>&1; then
   # repo GitHub sudah tersambung: kirim update, GitHub Pages ikut ter-update dalam 1-2 menit
+  # runner otomatis menyimpan arsip data harian ke repo, jadi ambil dulu perubahannya
+  git pull -q --rebase origin main 2>/dev/null || { git rebase --abort 2>/dev/null; echo "   (tarik dari GitHub gagal, coba push langsung)"; }
   if git push -q origin main 2>/dev/null || git push origin main; then
     echo "   terkirim ke GitHub. App online ter-update dalam 1-2 menit (refresh halaman)."
   else
@@ -103,5 +105,5 @@ else
   echo "   3) Settings > Pages > branch main / root"
 fi
 
-printf "\n\033[1;32mSelesai.\033[0m Langkah terakhir: tempel isi firestore.rules.daytrade ke Firestore Rules project radar-idx-hasira.\n"
+printf "\n\033[1;32mSelesai.\033[0m Mode otomatis: ikuti SETUP-OTOMATIS.md (rules Firestore, service account, Telegram) — cukup sekali.\n"
 printf "Coba skill: cd \"%s\" && claude, lalu ketik: scan day trade BBRI,BBCA,EMAS\n\n" "$APK"
