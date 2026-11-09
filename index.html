@@ -259,7 +259,7 @@
     </details>
   </section>
 
-  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.4 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
+  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.4.1 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
 </main>
 
 <script type="module">
@@ -335,7 +335,7 @@ async function initFirebase() {
       S.user = user;
       $("loginOverlay").classList.toggle("hidden", !!user);
       $("userEmail").textContent = user?.email || "";
-      if (user) { await loadRemote(); renderAll(); runScan(false); evalTrades(); loadAuto(); }
+      if (user) { await loadRemote(); renderAll(); runScan(false); evalTrades(); loadAuto(true); }
     });
   } catch (e) {
     showLoginErr("Gagal memuat Firebase: " + e.message);
@@ -792,12 +792,15 @@ document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   $("usNote").classList.toggle("hidden", S.market !== "us");
   renderAll();
   runScan(false);
-  loadAuto();
+  S.autoSigs = null;
+  loadAuto(true);
 });
 
 // ---------------------------------------------------------------- mode otomatis (dibaca dari runner)
 const STATUS_TAG = { pass: ["trig", "PASS"], block: ["block", "BLOCK"], extended: ["warn", "TERLALU JAUH"], late: ["exp", "TERLAMBAT"] };
-async function loadAuto() {
+// Hemat kuota Firestore (Spark, dipakai bersama Radar IDX): trade otomatis hanya dibaca ulang
+// kalau runner menulis sesuatu yang baru; status dicek tiap 5 menit saat halaman terlihat.
+async function loadAuto(force = false) {
   if (!S.db || !S.user) return;
   const { doc, getDoc, collection, getDocs, query, where } = S.fs;
   const m = M();
@@ -806,22 +809,30 @@ async function loadAuto() {
     const r = await getDoc(doc(S.db, "daytradeRunner", S.market));
     runner = r.exists() ? r.data() : null;
     const q = async (d) => (await getDocs(query(collection(S.db, "daytradeSignals"), where("market", "==", S.market), where("date", "==", d)))).docs.map(x => x.data());
-    sigs = await q(sigDate);
-    if (!sigs.length && runner?.date && runner.date !== sigDate) { sigDate = runner.date; sigs = await q(sigDate); }
-    // trade otomatis bisa saja lebih baru dari yang dimuat saat login
-    const tq = await getDocs(query(collection(S.db, "daytradeTrades"), where("auto", "==", true), where("market", "==", S.market)));
-    const fresh = tq.docs.map(d => ({ id: d.id, ...d.data() }));
-    S.trades = S.trades.filter(t => !(t.auto && t.market === S.market)).concat(fresh);
+    const stamp = `${S.market}|${runner?.lastScan || ""}|${runner?.summaryDate || ""}|${runner?.signalsToday || ""}|${runner?.state || ""}`;
+    const changed = force || stamp !== S.autoStamp;
+    S.autoStamp = stamp;
+    if (changed || !S.autoSigs) {
+      sigs = await q(sigDate);
+      if (!sigs.length && runner?.date && runner.date !== sigDate) { sigDate = runner.date; sigs = await q(sigDate); }
+      const tq = await getDocs(query(collection(S.db, "daytradeTrades"), where("auto", "==", true), where("market", "==", S.market)));
+      const fresh = tq.docs.map(d => ({ id: d.id, ...d.data() }));
+      S.trades = S.trades.filter(t => !(t.auto && t.market === S.market)).concat(fresh);
+      S.autoSigs = { sigs, sigDate };
+    } else ({ sigs, sigDate } = S.autoSigs);
   } catch (e) {
     $("autoStatus").textContent = "tidak bisa dibaca";
-    $("autoInfo").innerHTML = `<div class="msg err">Data otomatis tidak terbaca (${esc(e.code || e.message)}). Pastikan rules Firestore daytrade* sudah diperbarui (lihat SETUP-OTOMATIS.md).</div>`;
+    const quota = /resource-exhausted|quota/i.test(`${e.code} ${e.message}`);
+    $("autoInfo").innerHTML = `<div class="msg err">${quota
+      ? "Kuota harian Firestore (dipakai bersama Radar IDX) sedang habis — pulih 15:00 WIB. Runner tetap jalan & mengirim Telegram; data muncul di sini setelah kuota pulih."
+      : `Data otomatis tidak terbaca (${esc(e.code || e.message)}). Pastikan rules Firestore daytrade* sudah diperbarui (lihat SETUP-OTOMATIS.md).`}</div>`;
     return;
   }
   renderAuto(runner, sigs, sigDate);
   renderJournal();
 }
-$("btnAutoRefresh").onclick = loadAuto;
-setInterval(() => { if (document.visibilityState === "visible" && !S.replayAt) loadAuto(); }, 60_000);
+$("btnAutoRefresh").onclick = () => loadAuto(true);
+setInterval(() => { if (document.visibilityState === "visible" && !S.replayAt) loadAuto(); }, 5 * 60_000);
 
 function renderAuto(runner, sigs, sigDate) {
   const m = M(), P = m.price;

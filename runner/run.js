@@ -17,7 +17,7 @@ import {
 import { DEFAULTS, feesFrom } from "../lib/defaults.js";
 import { report, CRITERIA, verdictOf, fmtR } from "../lib/report.js";
 import { yahooLive, yahooFixtures, mapLimit } from "./sources.js";
-import { firestoreStore, fileStore } from "./store.js";
+import { fileStore, resilientStore } from "./store.js";
 
 // ---------------------------------------------------------------- argumen & lingkungan
 const A = {};
@@ -39,7 +39,16 @@ const log = (...x) => console.log(`[${clockTxt()}]`, ...x);
 const iso = () => new Date(now() * 1000).toISOString();
 
 const Y = A.fixtures ? yahooFixtures(A.fixtures) : yahooLive();
-const store = DRY ? fileStore(A.state || null) : await firestoreStore();
+function keyMaterial() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  if (!raw) throw new Error("Secret FIREBASE_SERVICE_ACCOUNT_KEY belum diisi");
+  try { return JSON.parse(raw).private_key || raw; } catch { return raw; }
+}
+const store = A.store === "resilient" // uji jalur kuota habis secara lokal
+  ? await resilientStore({ market: M.id, file: A.state, keyMaterial: "uji-lokal", log: (m) => console.log(m) })
+  : DRY ? fileStore(A.state || null)
+  : await resilientStore({ market: M.id, file: path.join("data", "daytrade", `state-${M.id}.enc`), keyMaterial: keyMaterial(), log: (m) => console.log(m) });
+const degradedNote = () => (store.degraded?.() ? "\n⚠️ Firestore sedang tidak tersedia (kuota harian habis?) — jurnal disimpan aman di repo dan disinkron otomatis nanti; app belum menampilkannya." : "");
 const runId = `${process.env.GITHUB_RUN_ID || "local"}-${PART}`;
 
 // ---------------------------------------------------------------- Telegram
@@ -233,7 +242,7 @@ async function onSignal(c, e, ctx) {
     tm ? `Time Machine: target ${pctTxt(tm.pTarget)} · stop ${pctTxt(tm.pStop)}${win.overnight ? ` (gap ${pctTxt(tm.pGapStop)})` : ""} — ${esc(tm.verdict.text.split(":")[0])}` : "",
     hist && hist.triggered ? `Riwayat 60 hari: ${hist.triggered} sinyal, rata-rata ${rTxt(hist.avgR)}` : "",
     news.length ? `Berita: ${news.map(n => "• " + esc(n.title)).join(" ")}` : "",
-    `<i>Paper otomatis tercatat. Eksekusi manual di broker hanya kalau Anda setuju. Bukan saran keuangan.</i>`,
+    `<i>Paper otomatis tercatat. Eksekusi manual di broker hanya kalau Anda setuju. Bukan saran keuangan.</i>` + degradedNote(),
   ];
   await tg(lines.filter(Boolean).join("\n"));  return sig;
 }
@@ -273,6 +282,7 @@ async function dailySummary(today, trades, sigs, uniInfo) {
     `<b>Rapor otomatis</b> (${r.n} trade selesai): ${r.n ? `menang ${pctTxt(r.winRate)} · rata-rata ${fmtR(r.avgR)} · total ${money(r.totalPnl)} · drawdown terdalam -${r.maxDD.toFixed(1)}R` : "belum ada"}`,
     `Kelayakan: <b>${verdictOf(r)}</b> — ${CRITERIA.map(c => `${c.ok(r) ? "✓" : "✗"} ${c.val(r)}`).join(" · ")}`,
     uniInfo?.warn ? `⚠️ ${esc(uniInfo.warn)}` : "",
+    degradedNote().trim(),
   ];
   await tg(lines.filter(x => x !== null && x !== undefined && x !== false).join("\n").replace(/\n{3,}/g, "\n\n"));
 }
@@ -332,7 +342,8 @@ async function main() {
     const u = await universe(S);
     uniInfo = { size: u.rows.length, asOf: u.asOf };
     if (M.id === "idx" && u.asOf && (Date.parse(today) - Date.parse(u.asOf)) / 864e5 > 5) uniInfo.warn = `Data likuiditas Radar IDX terakhir ${u.asOf} — upload Excel harian supaya universe tetap akurat.`;
-    if (M.id === "idx" && !SIM && !u.rows.length) uniInfo.warn = "Universe IDX kosong (tickerRollingStats tidak terbaca).";
+    if (M.id === "idx" && !SIM && !u.rows.length) uniInfo.warn = "Universe IDX kosong (tickerRollingStats tidak terbaca dan belum ada salinan).";
+    if (u.cached) log(`universe IDX dari salinan ${u.cachedAt}`);
     if (u.rows.some(r => r.avgValue == null)) {
       log(`menghitung likuiditas ${u.rows.length} saham…`);
       const vals = await mapLimit(u.rows, SIM ? 1 : 6, (r) => avgDailyValue(r.symbol));
@@ -406,4 +417,5 @@ catch (err) {
   }
   process.exitCode = 1;
 }
+try { await store.save?.(); } catch (e) { console.error("simpan salinan lokal gagal:", e.message); }
 if (A.dump && DRY) fs.writeFileSync(A.dump, JSON.stringify(store.dump(), null, 1));
