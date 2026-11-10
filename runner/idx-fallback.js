@@ -1,0 +1,8 @@
+// Universe IDX darurat: dipakai HANYA kalau Firestore tidak bisa dibaca dan belum ada salinan universe
+// (data/daytrade/universe-idx.json). Likuiditas tetap dihitung dari data harian Yahoo lalu disaring
+// ≥ batas nilai transaksi di Pengaturan, jadi daftar ini cukup "kumpulan saham yang biasanya ramai".
+export const IDX_FALLBACK = `BBCA BBRI BMRI BBNI TLKM ASII GOTO ANTM ADRO MDKA INCO PTBA ITMG UNTR ICBP INDF UNVR CPIN JPFA KLBF
+SIDO MIKA HEAL BRIS ARTO BBTN BNGA BDMN PNBN MEDC PGAS AKRA ELSA ENRG RAJA BUMI BRMS DEWA PSAB MBMA NCKL AMMN
+TINS INKP TKIM SMGR INTP AVIA MAPI MAPA ACES ERAA AMRT MIDI BUKA EMTK SCMA MNCN EXCL ISAT TOWR TBIG MTEL JSMR
+WIKA PTPP ADHI CTRA BSDE PWON SMRA LPKR SSIA DOID HRUM INDY BYAN GEMS AADI CUAN BREN PGEO TPIA BRPT ESSA SRTG
+HMSP GGRM WIIF CMRY MYOR ULTJ AALI LSIP DSNG TAPG SMDR TMAS ELPI PANI DSSA PTRO RATU WIFI CDIA FILM DATA KIJA`.split(/\s+/).filter(Boolean);

@@ -18,6 +18,7 @@ import { DEFAULTS, feesFrom } from "../lib/defaults.js";
 import { report, CRITERIA, verdictOf, fmtR } from "../lib/report.js";
 import { yahooLive, yahooFixtures, mapLimit } from "./sources.js";
 import { fileStore, resilientStore } from "./store.js";
+import { IDX_FALLBACK } from "./idx-fallback.js";
 
 // ---------------------------------------------------------------- argumen & lingkungan
 const A = {};
@@ -101,8 +102,23 @@ function orStats(day, orMinutes) {
 async function universe(S) {
   if (M.id === "idx") {
     if (SIM) return { rows: Y.idxUniverse().map(s => ({ symbol: s, avgValue: null })), asOf: null };
-    const u = await store.idxUniverse(+S.minAvgValue || 5e9);
-    return u;
+    const minV = +S.minAvgValue || 5e9;
+    const snap = path.join("data", "daytrade", "universe-idx.json");
+    const u = await store.idxUniverse(minV);
+    if (u.rows.length && !u.cached && !DRY) {
+      // salinan terbuka (daftar saham + rata-rata nilai transaksi) untuk hari Firestore tidak bisa dibaca
+      fs.mkdirSync(path.dirname(snap), { recursive: true });
+      fs.writeFileSync(snap, JSON.stringify({ asOf: u.asOf, minValue: minV, savedAt: iso(), rows: u.rows.map(r => ({ symbol: r.symbol, avgValue: r.avgValue })) }));
+    }
+    if (u.rows.length) return u;
+    try {
+      const f = JSON.parse(fs.readFileSync(snap, "utf8"));
+      const rows = f.rows.filter(r => r.avgValue >= minV);
+      if (rows.length) { log(`universe IDX dari salinan repo ${f.savedAt}`); return { rows, asOf: f.asOf, cached: true, cachedAt: f.savedAt, note: `Firestore tidak bisa dibaca — universe dari salinan ${f.asOf || f.savedAt.slice(0, 10)}.` }; }
+    } catch {}
+    log(`universe IDX darurat: ${IDX_FALLBACK.length} saham, likuiditas dihitung dari Yahoo`);
+    return { rows: IDX_FALLBACK.map(s => ({ symbol: s, avgValue: null })), asOf: null, fallback: true, minValue: minV,
+      note: "Firestore tidak bisa dibaca dan belum ada salinan universe — memakai daftar darurat saham likuid (disaring ulang dari data Yahoo)." };
   }
   const syms = await Y.usUniverse();
   return { rows: syms.map(s => ({ symbol: s, avgValue: null })), asOf: null };
@@ -343,12 +359,15 @@ async function main() {
     uniInfo = { size: u.rows.length, asOf: u.asOf };
     if (M.id === "idx" && u.asOf && (Date.parse(today) - Date.parse(u.asOf)) / 864e5 > 5) uniInfo.warn = `Data likuiditas Radar IDX terakhir ${u.asOf} — upload Excel harian supaya universe tetap akurat.`;
     if (M.id === "idx" && !SIM && !u.rows.length) uniInfo.warn = "Universe IDX kosong (tickerRollingStats tidak terbaca dan belum ada salinan).";
+    if (u.note && !SIM) await tg(`⚠️ <b>${LABEL}</b> ${esc(u.note)}`);
     if (u.cached) log(`universe IDX dari salinan ${u.cachedAt}`);
     if (u.rows.some(r => r.avgValue == null)) {
       log(`menghitung likuiditas ${u.rows.length} saham…`);
       const vals = await mapLimit(u.rows, SIM ? 1 : 6, (r) => avgDailyValue(r.symbol));
       u.rows.forEach((r, i) => { r.avgDaily = typeof vals[i] === "number" ? vals[i] : null; });
+      if (u.fallback) { u.rows = u.rows.filter(r => r.avgDaily >= u.minValue); uniInfo.size = u.rows.length; }
     }
+    if (u.note) uniInfo.warn = [u.note, uniInfo.warn].filter(Boolean).join(" ");
     uniInfo.rows = u.rows;
     await beat("menunggu opening range", { universe: uniInfo.size, universeAsOf: uniInfo.asOf || null });
   } else if (PART === 1 && now() > entryEnd && !SIM && runner.lateNotice !== today) {
@@ -371,7 +390,9 @@ async function main() {
         cands = await pickCandidates(S, today, uniInfo);
         await beat("scan", { candidates: cands.map(c => c.symbol), candidatesAt: iso() });
         const key = `${today}-p${PART}`;
-        if ((await store.runner(M.id))?.startNotice !== key) {
+        if (!cands.length && !SIM) {
+          await tg(`⚠️ <b>${LABEL} tidak ada saham yang bisa dipantau</b> (universe ${uniInfo?.size ?? 0} saham, data opening range Yahoo kosong?). Bagian ini tidak akan menghasilkan sinyal — cek tab Actions.`);
+        } else if ((await store.runner(M.id))?.startNotice !== key) {
           await tg(`▶️ <b>${LABEL} mulai memantau</b> ${cands.length} saham teraktif (dari ${uniInfo?.size ?? "?"} di universe) · cek tiap 5 menit s.d. ${atWIB(today, win.lastEntryMin + 5)}.\nPesan berikutnya hanya kalau ada sinyal yang lolos risk check — kalau sepi, berarti belum ada breakout yang layak.`);
           await store.setRunner(M.id, { startNotice: key });
         }
