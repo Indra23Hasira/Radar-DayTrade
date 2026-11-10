@@ -30,7 +30,7 @@ Firebase: menumpang project `radar-idx-hasira` (login sama dengan Radar IDX). Ko
 ## Temuan
 - 9 Nov 2026: kuota harian Firestore Spark project radar-idx-hasira HABIS (RESOURCE_EXHAUSTED). Penyebab: Radar IDX
   membaca histori per saham (Step 4 ±17rb, Backtest ±30rb, Diagnosa 120 hari >80rb baca). Kuota dipakai bersama,
-  reset tengah malam waktu Pasifik = 15:00 WIB (Mar–Nov) / 16:00 WIB (Nov–Mar). Diperbaiki 10 Nov dengan arsip hemat.
+  reset tengah malam waktu Pasifik = 14:00 WIB (Mar–Nov) / 15:00 WIB (Nov–Mar). Diperbaiki 10 Nov dengan arsip hemat.
 - 9–10 Nov 2026: jadwal cron GitHub Actions terlambat berjam-jam (US bagian 1 jalan 05:41 WIB; IDX 08:15 belum jalan
   09:14 WIB) → hari itu IDX dijalankan manual (workflow_dispatch).
 - 10 Nov 2026: pemicu utama dipindah ke **cron-job.org** (akun Indra, zona Asia/Jakarta, notifikasi email kalau gagal):

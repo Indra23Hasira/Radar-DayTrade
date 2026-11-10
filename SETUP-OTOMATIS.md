@@ -67,7 +67,7 @@ paruh awal dan paruh akhir sama-sama positif. Lihat panel **Rapor kelayakan** di
 ## Kalau kuota Firestore habis
 
 Project `radar-idx-hasira` memakai paket gratis (Spark): ±50.000 baca & 20.000 tulis per hari, **dipakai bersama Radar IDX**,
-reset tengah malam waktu Pasifik (**15:00 WIB** Mar–Nov, **16:00 WIB** Nov–Mar). Sejak 10 Nov 2026 semua app Radar memakai
+reset tengah malam waktu Pasifik (**14:00 WIB** Mar–Nov, **15:00 WIB** Nov–Mar). Sejak 10 Nov 2026 semua app Radar memakai
 "arsip hemat" (lihat ARSIP-HEMAT.md di repo Radar-IDX-Hasira) sehingga kuota jauh lebih longgar. Kalau habis, runner tetap jalan: sinyal & hasil tetap ke Telegram, jurnal disimpan terenkripsi di
 `data/daytrade/state-<pasar>.enc` (kunci dari secret service account), lalu disinkron otomatis ke Firestore saat kuota pulih.
 Selama itu app belum bisa menampilkan data terbaru. Cek pemakaian: Firebase Console → Firestore → **Usage**.
