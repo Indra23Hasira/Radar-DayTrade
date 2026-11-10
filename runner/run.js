@@ -351,6 +351,11 @@ async function main() {
     }
     uniInfo.rows = u.rows;
     await beat("menunggu opening range", { universe: uniInfo.size, universeAsOf: uniInfo.asOf || null });
+  } else if (PART === 1 && now() > entryEnd && !SIM && runner.lateNotice !== today) {
+    // jadwal GitHub Actions bisa terlambat berjam-jam: beri tahu, jangan diam-diam melewatkan sesi
+    const nowMin = localParts(now(), M.tz).min;
+    await tg(`⚠️ <b>${LABEL} runner baru jalan ${atWIB(today, nowMin)}</b> — jadwal GitHub Actions terlambat, jendela entry hari ini (s.d. ${atWIB(today, win.lastEntryMin + 5)}) sudah lewat. Tidak ada sinyal untuk sesi ini.`);
+    await store.setRunner(M.id, { lateNotice: today });
   }
 
   let last = 0;
@@ -365,6 +370,11 @@ async function main() {
       if (!cands) {
         cands = await pickCandidates(S, today, uniInfo);
         await beat("scan", { candidates: cands.map(c => c.symbol), candidatesAt: iso() });
+        const key = `${today}-p${PART}`;
+        if ((await store.runner(M.id))?.startNotice !== key) {
+          await tg(`▶️ <b>${LABEL} mulai memantau</b> ${cands.length} saham teraktif (dari ${uniInfo?.size ?? "?"} di universe) · cek tiap 5 menit s.d. ${atWIB(today, win.lastEntryMin + 5)}.\nPesan berikutnya hanya kalau ada sinyal yang lolos risk check — kalau sepi, berarti belum ada breakout yang layak.`);
+          await store.setRunner(M.id, { startNotice: key });
+        }
       }
       await mapLimit(cands.filter(c => !signaled.has(c.symbol)), SIM ? 1 : 6, (c) => refreshToday(c.symbol, today));
       for (const c of cands) {
