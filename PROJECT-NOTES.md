@@ -32,7 +32,14 @@ Firebase: menumpang project `radar-idx-hasira` (login sama dengan Radar IDX). Ko
   membaca histori per saham (Step 4 ±17rb, Backtest ±30rb, Diagnosa 120 hari >80rb baca). Kuota dipakai bersama,
   reset tengah malam waktu Pasifik = 15:00 WIB (Mar–Nov) / 16:00 WIB (Nov–Mar). Diperbaiki 10 Nov dengan arsip hemat.
 - 9–10 Nov 2026: jadwal cron GitHub Actions terlambat berjam-jam (US bagian 1 jalan 05:41 WIB; IDX 08:15 belum jalan
-  09:14 WIB) → hari itu IDX dijalankan manual (workflow_dispatch). Perlu pemicu cadangan kalau terus terjadi.
+  09:14 WIB) → hari itu IDX dijalankan manual (workflow_dispatch).
+- 10 Nov 2026: pemicu utama dipindah ke **cron-job.org** (akun Indra, zona Asia/Jakarta, notifikasi email kalau gagal):
+  "DayTrade IDX sesi 1" `15 8 * * 1-5` dan "DayTrade US sesi 1" `45 19 * * 1-5`, POST ke
+  api.github.com/repos/Indra23Hasira/Radar-DayTrade/actions/workflows/<daytrade-idx|daytrade-us>.yml/dispatches,
+  body {"ref":"main","inputs":{"part":"1","dry_run":"false"}}, header Authorization: Bearer <fine-grained token
+  "cron-job daytrade", hanya repo Radar-DayTrade, Actions read/write, tanpa kedaluwarsa>. Cron GitHub tetap sebagai
+  cadangan (runner idempoten). Bagian 2 tidak dijadwalkan di cron-job.org (mode sesi1 / jual besok tidak butuh).
+  Respons GitHub menyebut API versi 2022-11-28 "sunset" 10 Mar 2028 → sebelum itu cek/ubah header versi API.
 - Fee IDX (0,15% + 0,25%) menggerus R: 2R kotor bisa jadi ±1,2R bersih → stop sempit sering tidak layak.
 - Contoh nyata: TSLA 4→5 Nov 2026 gap di bawah stop → −2,47R (stop tidak melindungi dari gap).
 - Data Yahoo IDX intraday tampak terlambat beberapa menit; runner mencatat keterlambatan per sinyal.
