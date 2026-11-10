@@ -1,6 +1,6 @@
 {
   "name": "radar-daytrade",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "description": "Radar-DayTrade: app day trade IDX + US (GitHub Pages) dan CLI untuk skill Claude Code",

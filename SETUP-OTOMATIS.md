@@ -47,7 +47,7 @@ Tiap jadwal punya cadangan +20/25 menit (GitHub kadang menunda cron); cadangan l
 ## Cara kerja singkat
 
 - **Universe IDX**: saham dengan rata-rata nilai transaksi 20 hari ≥ Rp5 miliar, dibaca dari `tickerRollingStats`
-  Radar IDX (hanya dibaca). Upload Excel harian Radar IDX tetap perlu supaya daftar ini segar — ringkasan Telegram memberi
+  Radar IDX (hanya dibaca; lewat arsip hemat `radarBundles/rolling` kalau masih cocok). Upload Excel harian Radar IDX tetap perlu supaya daftar ini segar — ringkasan Telegram memberi
   peringatan kalau datanya lebih dari 5 hari.
 - **Universe US**: S&P 500 + Nasdaq-100 (±520 saham).
 - **Kandidat**: setelah opening range 15 menit, saham diurutkan menurut aktivitas relatif (nilai transaksi 15 menit pertama
@@ -67,7 +67,8 @@ paruh awal dan paruh akhir sama-sama positif. Lihat panel **Rapor kelayakan** di
 ## Kalau kuota Firestore habis
 
 Project `radar-idx-hasira` memakai paket gratis (Spark): ±50.000 baca & 20.000 tulis per hari, **dipakai bersama Radar IDX**,
-reset tiap **15:00 WIB**. Kalau habis, runner tetap jalan: sinyal & hasil tetap ke Telegram, jurnal disimpan terenkripsi di
+reset tengah malam waktu Pasifik (**15:00 WIB** Mar–Nov, **16:00 WIB** Nov–Mar). Sejak 10 Nov 2026 semua app Radar memakai
+"arsip hemat" (lihat ARSIP-HEMAT.md di repo Radar-IDX-Hasira) sehingga kuota jauh lebih longgar. Kalau habis, runner tetap jalan: sinyal & hasil tetap ke Telegram, jurnal disimpan terenkripsi di
 `data/daytrade/state-<pasar>.enc` (kunci dari secret service account), lalu disinkron otomatis ke Firestore saat kuota pulih.
 Selama itu app belum bisa menampilkan data terbaru. Cek pemakaian: Firebase Console → Firestore → **Usage**.
 

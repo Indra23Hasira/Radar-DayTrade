@@ -2,9 +2,46 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 
 // id trade otomatis deterministik: sama di Firestore dan di salinan lokal
 export const tradeId = (t) => `${t.market}_${t.date}_${t.symbol}`;
+
+// ---------------------------------------------------------------- arsip hemat Radar IDX (radarBundles)
+// Ditulis oleh Radar IDX (radar-bundle.js di repo Radar-IDX-Hasira): radarBundles/rolling = salinan
+// tickerRollingStats [[id, data], ...], JSON → gzip → base64, bisa terpotong ke rolling__p1.. .
+// Dipakai hanya kalau masih cocok dengan koleksi aslinya (updatedAt terbaru sama).
+const bundleReviver = (k, v) => {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const ks = Object.keys(v);
+    if (ks.length === 1 && ks[0] === "__n") return Number(v.__n);
+    if (ks.length === 1 && ks[0] === "__ts") return v.__ts;
+  }
+  return v;
+};
+export function decodeBundle(enc, str) {
+  const json = enc === "gz64" ? zlib.gunzipSync(Buffer.from(str, "base64")).toString("utf8") : enc === "json" ? str : null;
+  if (json === null) throw new Error("format arsip tidak dikenal: " + enc);
+  return JSON.parse(json, bundleReviver);
+}
+export async function rollingFromBundle(db) {
+  const m = await db.doc("radarBundles/meta").get();
+  const e = m.exists ? m.data().rolling : null;
+  if (!e || !e.s) return null;
+  const top = await db.collection("tickerRollingStats").orderBy("updatedAt", "desc").limit(1).select("updatedAt").get();
+  const upd = top.empty ? null : top.docs[0].get("updatedAt") ?? null;
+  if (upd !== (e.maxUpd ?? null)) return null; // ada tulisan baru di tickerRollingStats → arsip usang
+  const main = await db.doc("radarBundles/rolling").get();
+  if (!main.exists || main.data().s !== e.s) return null;
+  const d = main.data();
+  const parts = [d.p0 || ""];
+  for (let i = 1; i < (d.parts || 1); i++) {
+    const p = await db.doc(`radarBundles/rolling__p${i}`).get();
+    if (!p.exists || p.data().s !== e.s) return null;
+    parts.push(p.data().p);
+  }
+  return decodeBundle(d.enc, parts.join(""));
+}
 
 export async function firestoreStore() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
@@ -29,11 +66,23 @@ export async function firestoreStore() {
       return q.docs.map(d => d.data());
     },
     async setSignal(id, doc) { await db.doc(`daytradeSignals/${id}`).set(clean(doc)); },
-    // Universe IDX dari Radar IDX (hanya dibaca): rata-rata nilai transaksi 20 hari dari upload Excel harian
+    // Universe IDX dari Radar IDX (hanya dibaca): rata-rata nilai transaksi 20 hari dari upload Excel harian.
+    // Hemat kuota: dibaca dari arsip hemat radarBundles/rolling (±3 baca) — kalau tidak ada / usang, query lama.
     async idxUniverse(minValue) {
-      const q = await db.collection("tickerRollingStats").where("avgValue20d", ">=", minValue).select("ticker", "avgValue20d").get();
       const meta = await db.doc("systemMeta/marketRegime").get();
-      return { rows: q.docs.map(d => ({ symbol: d.data().ticker || d.id, avgValue: d.data().avgValue20d })), asOf: meta.exists ? meta.data().date : null };
+      const asOf = meta.exists ? meta.data().date : null;
+      let entries = null;
+      try { entries = await rollingFromBundle(db); } catch (e) { console.log(`Arsip hemat rolling tidak terpakai (${e.message}) — query biasa`); }
+      if (entries) {
+        // sama dengan where('avgValue20d','>=',min): hanya angka, urut avgValue20d lalu id
+        const rows = entries
+          .filter(([, d]) => typeof d.avgValue20d === "number" && d.avgValue20d >= minValue)
+          .sort((a, b) => (a[1].avgValue20d - b[1].avgValue20d) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+          .map(([id, d]) => ({ symbol: d.ticker || id, avgValue: d.avgValue20d }));
+        return { rows, asOf, via: "arsip" };
+      }
+      const q = await db.collection("tickerRollingStats").where("avgValue20d", ">=", minValue).select("ticker", "avgValue20d").get();
+      return { rows: q.docs.map(d => ({ symbol: d.data().ticker || d.id, avgValue: d.data().avgValue20d })), asOf, via: "query" };
     },
   };
 }
