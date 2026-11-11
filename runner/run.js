@@ -377,7 +377,7 @@ async function main() {
     await store.setRunner(M.id, { lateNotice: today });
   }
 
-  let last = 0;
+  let last = 0, nextPick = 0, emptyPicks = 0;
   while (true) {
     const t = now();
     if (t >= untilSec) break;
@@ -386,12 +386,19 @@ async function main() {
     if (t < startNeeded) { await sleepUntil(Math.min(startNeeded, untilSec)); continue; }
     await evaluateOpen(trades, fees, today);
     if (needEntries && t >= orReady && t <= entryEnd) {
-      if (!cands) {
+      // Data intraday Yahoo untuk IDX sering terlambat beberapa menit: kalau belum ada kandidat, coba lagi tiap
+      // siklus (5 menit) — jangan sampai satu sesi mati karena percobaan pertama terlalu cepat.
+      if (!cands || (!cands.length && t >= nextPick)) {
         cands = await pickCandidates(S, today, uniInfo);
         await beat("scan", { candidates: cands.map(c => c.symbol), candidatesAt: iso() });
         const key = `${today}-p${PART}`;
-        if (!cands.length && !SIM) {
-          await tg(`⚠️ <b>${LABEL} tidak ada saham yang bisa dipantau</b> (universe ${uniInfo?.size ?? 0} saham, data opening range Yahoo kosong?). Bagian ini tidak akan menghasilkan sinyal — cek tab Actions.`);
+        if (!cands.length) {
+          emptyPicks++;
+          nextPick = t + 240;
+          log(`belum ada kandidat (percobaan ${emptyPicks}) — data opening range Yahoo mungkin belum masuk, coba lagi`);
+          if (emptyPicks === 6 && !SIM) {
+            await tg(`⚠️ <b>${LABEL} belum ada saham yang bisa dipantau</b> setelah 30 menit (universe ${uniInfo?.size ?? 0} saham, data intraday Yahoo kosong/terlambat). Runner tetap mencoba tiap 5 menit s.d. ${atWIB(today, win.lastEntryMin + 5)}.`);
+          }
         } else if ((await store.runner(M.id))?.startNotice !== key) {
           await tg(`▶️ <b>${LABEL} mulai memantau</b> ${cands.length} saham teraktif (dari ${uniInfo?.size ?? "?"} di universe) · cek tiap 5 menit s.d. ${atWIB(today, win.lastEntryMin + 5)}.\nPesan berikutnya hanya kalau ada sinyal yang lolos risk check — kalau sepi, berarti belum ada breakout yang layak.`);
           await store.setRunner(M.id, { startNotice: key });
