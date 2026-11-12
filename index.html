@@ -140,6 +140,7 @@
   <div class="tabs" role="tablist">
     <button class="tab active" data-market="idx">IDX</button>
     <button class="tab" data-market="us">US</button>
+    <button class="tab" data-market="all">Gabungan</button>
   </div>
   <div class="hdr-right">
     <span class="pill"><span class="dot" id="clockDot"></span><span id="clockLabel">—</span></span>
@@ -153,6 +154,37 @@
   <div class="banner"><b>Mode paper.</b> Aplikasi ini tidak pernah mengirim order. Tiket di bawah dieksekusi manual di aplikasi broker setelah Anda yakin. Bukan saran keuangan; kebanyakan day trader rugi.
     <span id="usNote" class="hidden"> Tab US: data Yahoo bisa tertunda; komisi mengikuti IBKR Pro Fixed (min $1, maks 1%). Mode "jual besok" membawa posisi semalam — stop tidak melindungi dari gap.</span></div>
 
+  <section class="card hidden" id="combinedCard">
+    <div class="card-h">
+      <h2>Gabungan IDX + US</h2>
+      <div class="row">
+        <select id="cFilter"><option value="all">Semua trade</option><option value="auto">Otomatis</option><option value="manual">Manual</option></select>
+        <select id="cPeriod"><option value="week">Per minggu</option><option value="month">Per bulan</option></select>
+        <button class="btn small" id="btnCombinedRefresh">Muat ulang</button>
+      </div>
+    </div>
+    <div class="card-b">
+      <div class="faint" id="cInfo"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>IDX</th><th>US</th><th>Total</th></tr></thead>
+          <tbody id="cSummary"></tbody>
+        </table>
+      </div>
+      <h3 class="sub">P/L kumulatif (Rupiah)</h3>
+      <div id="cCurve"></div>
+      <h3 class="sub" id="cPeriodTitle">Per minggu</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Periode</th><th>IDX</th><th>US</th><th>Total</th></tr></thead>
+          <tbody id="cPeriodBody"></tbody>
+        </table>
+      </div>
+      <div class="faint" style="margin-top:8px">P/L US dikonversi ke Rupiah dengan kurs USD/IDR harian (Yahoo) pada tanggal trade ditutup. R = hasil dibagi risiko yang direncanakan — dipakai untuk membandingkan kualitas sistem IDX vs US tanpa terpengaruh besar modal. Trade latihan (putar ulang) tidak dihitung.</div>
+    </div>
+  </section>
+
+  <div id="marketView">
   <section class="card" id="autoCard">
     <div class="card-h">
       <h2>Mode otomatis (paper)</h2>
@@ -259,7 +291,9 @@
     </details>
   </section>
 
-  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.4.2 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
+  </div><!-- /marketView -->
+
+  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.5 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
 </main>
 
 <script type="module">
@@ -785,8 +819,13 @@ $("btnLive").onclick = () => { S.replayAt = null; S.scan = {}; tickClock(); rend
 
 // ---------------------------------------------------------------- tab pasar
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
-  S.market = b.dataset.market; S.selected = null; S.plan = null;
   document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === b));
+  const all = b.dataset.market === "all";
+  S.view = all ? "all" : b.dataset.market;
+  $("combinedCard").classList.toggle("hidden", !all);
+  $("marketView").classList.toggle("hidden", all);
+  if (all) { loadCombined(false); return; }
+  S.market = b.dataset.market; S.selected = null; S.plan = null;
   $("plannerCard").classList.add("hidden");
   $("btnImport").classList.toggle("hidden", S.market !== "idx");
   $("usNote").classList.toggle("hidden", S.market !== "us");
@@ -894,7 +933,143 @@ function curveSvg(curve) {
   </svg><div class="faint" style="margin-top:4px">R kumulatif ${fmtR(curve.at(-1).cumR)} dari ${curve.length} trade</div>`;
 }
 
-window.__dt = { S, renderAuto }; // untuk uji tampilan
+// ---------------------------------------------------------------- tab Gabungan (IDX + US dalam Rupiah)
+const FX_KEY = "dt_fx_usdidr";
+async function loadFx(force = false) {
+  const cached = ls.get(FX_KEY, null);
+  if (!force && cached && Date.now() - cached.at < 6 * 3600e3) return cached;
+  const url = "https://query1.finance.yahoo.com/v8/finance/chart/IDR%3DX?range=2y&interval=1d";
+  for (const p of PROXIES) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 12000);
+      const r = await fetch(p(url), { signal: ctl.signal });
+      clearTimeout(t);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const res = (await r.json())?.chart?.result?.[0];
+      const ts = res?.timestamp || [], cl = res?.indicators?.quote?.[0]?.close || [];
+      const rows = ts.map((x, i) => [localParts(x, "Asia/Jakarta").date, cl[i]]).filter(([, c]) => c > 1000);
+      if (rows.length) { const fx = { at: Date.now(), rows }; ls.set(FX_KEY, fx); return fx; }
+    } catch {}
+  }
+  return cached; // pakai kurs tersimpan terakhir kalau Yahoo tidak bisa diambil
+}
+function fxOn(fx, date) {
+  if (!fx?.rows?.length) return null;
+  let v = fx.rows[0][1];
+  for (const [d, c] of fx.rows) { if (d <= date) v = c; else break; }
+  return v;
+}
+const closeDate = (t) => t.result?.exitDate || t.flatDate || t.date;
+
+async function loadCombined(force) {
+  $("cInfo").textContent = "memuat…";
+  // trade otomatis kedua pasar (1 query; manual sudah dimuat saat login)
+  if (S.db && S.user && (force || !S.combinedAt || Date.now() - S.combinedAt > 5 * 60e3)) {
+    try {
+      const { collection, getDocs, query, where } = S.fs;
+      const tq = await getDocs(query(collection(S.db, "daytradeTrades"), where("auto", "==", true)));
+      S.trades = S.trades.filter(t => !t.auto).concat(tq.docs.map(d => ({ id: d.id, ...d.data() })));
+      S.combinedAt = Date.now();
+    } catch (e) { $("cInfo").innerHTML = `<div class="msg err">Trade otomatis tidak terbaca (${esc(e.code || e.message)}) — yang tampil hanya data yang sudah dimuat.</div>`; }
+  }
+  S.fx = await loadFx(force);
+  renderCombined();
+}
+$("btnCombinedRefresh").onclick = () => loadCombined(true);
+$("cFilter").onchange = () => renderCombined();
+$("cPeriod").onchange = () => renderCombined();
+
+function renderCombined() {
+  const f = $("cFilter").value, fx = S.fx;
+  const ts = S.trades.filter(t => !t.replay && (f === "all" || (f === "auto") === !!t.auto) && (t.market === "idx" || t.market === "us"));
+  const idrOf = (t) => {
+    const pnl = Number(t.result?.pnl) || 0;
+    if (t.market === "idx") return pnl;
+    const r = fxOn(fx, closeDate(t));
+    return r ? pnl * r : null;
+  };
+  const rp = MARKETS.idx.money, usd = MARKETS.us.money;
+  const lastFx = fx?.rows?.at(-1);
+  const info = [];
+  info.push(lastFx ? `Kurs terakhir USD/IDR ${Math.round(lastFx[1]).toLocaleString("id-ID")} (${lastFx[0]})${Date.now() - fx.at > 24 * 3600e3 ? " — tersimpan, Yahoo sedang tidak bisa diambil" : ""}` : "Kurs USD/IDR belum bisa diambil — P/L US belum bisa dijumlahkan ke Rupiah.");
+  $("cInfo").textContent = info.join(" · ");
+
+  const part = (list) => {
+    const r = report(list);
+    const closed = list.filter(t => t.result?.status === "closed");
+    const idr = closed.map(idrOf);
+    const missing = idr.some(x => x == null);
+    const pos = idr.filter(x => x > 0).reduce((a, x) => a + x, 0), neg = -idr.filter(x => x < 0).reduce((a, x) => a + x, 0);
+    return { r, closed, idr: missing ? null : idr.reduce((a, x) => a + x, 0), pfIdr: neg > 0 ? pos / neg : pos > 0 ? Infinity : null };
+  };
+  const A = { idx: part(ts.filter(t => t.market === "idx")), us: part(ts.filter(t => t.market === "us")), all: part(ts) };
+  const cls = (x) => (x == null ? "" : x >= 0 ? "pos" : "neg");
+  const pf = (x) => (x == null ? "-" : x === Infinity ? "∞" : x.toFixed(2));
+  const cell = (k, fn) => `<td class="mono">${fn(A[k], k)}</td>`;
+  const row = (label, fn) => `<tr><td>${label}</td>${cell("idx", fn)}${cell("us", fn)}${cell("all", fn)}</tr>`;
+  $("cSummary").innerHTML = [
+    row("Trade selesai (+terbuka)", (a) => `${a.r.n}${a.r.open ? ` <span class="faint">+${a.r.open}</span>` : ""}`),
+    row("Menang", (a) => (a.r.n ? `${Math.round(a.r.winRate * 100)}% <span class="faint">(${a.r.wins}/${a.r.n})</span>` : "-")),
+    row("Rata-rata R", (a) => (a.r.avgR == null ? "-" : `<span class="${cls(a.r.avgR)}">${fmtR(a.r.avgR)}</span>`)),
+    row("Total R", (a) => (a.r.n ? `<span class="${cls(a.r.totalR)}">${fmtR(a.r.totalR)}</span>` : "-")),
+    row("Profit factor", (a) => pf(a.pfIdr)),
+    row("Drawdown terdalam (R)", (a) => (a.r.n ? `<span class="neg">-${a.r.maxDD.toFixed(1)}R</span>` : "-")),
+    row("P/L mata uang asli", (a, k) => (k === "all" ? `<span class="faint">—</span>` : a.r.n ? `<span class="${cls(a.r.totalPnl)}">${(k === "idx" ? rp : usd)(a.r.totalPnl)}</span>` : "-")),
+    row("<b>P/L dalam Rupiah</b>", (a) => (!a.r.n ? "-" : a.idr == null ? `<span class="faint">kurs belum ada</span>` : `<b class="${cls(a.idr)}">${rp(a.idr)}</b>`)),
+  ].join("");
+
+  // kurva Rupiah kumulatif per tanggal tutup
+  const days = [...new Set(A.all.closed.map(closeDate))].sort();
+  if (days.length >= 2 && A.all.idr != null) {
+    const sumOn = (m, d) => A.all.closed.filter(t => (m === "all" || t.market === m) && closeDate(t) === d).reduce((a, t) => a + idrOf(t), 0);
+    const series = ["idx", "us", "all"].map(m => { let c = 0; return days.map(d => (c += sumOn(m, d))); });
+    $("cCurve").innerHTML = multiCurveSvg(days, series, ["IDX", "US", "Total"]);
+  } else $("cCurve").innerHTML = `<div class="faint">Kurva muncul setelah ada trade selesai di minimal 2 hari${A.all.idr == null && A.all.r.n ? " dan kurs USD/IDR tersedia" : ""}.</div>`;
+
+  // tabel per minggu / bulan
+  const per = $("cPeriod").value;
+  $("cPeriodTitle").textContent = per === "week" ? "Per minggu" : "Per bulan";
+  const keyOf = (d) => {
+    if (per === "month") return d.slice(0, 7);
+    const dt = new Date(d + "T00:00:00Z"); const wd = (dt.getUTCDay() + 6) % 7;
+    return new Date(dt.getTime() - wd * 864e5).toISOString().slice(0, 10); // Senin
+  };
+  const labelOf = (k) => {
+    if (per === "month") return new Date(k + "-01T00:00:00Z").toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: "UTC" });
+    const end = new Date(Date.parse(k + "T00:00:00Z") + 4 * 864e5).toISOString().slice(0, 10);
+    return `${dayLabel(k)} – ${dayLabel(end)}`;
+  };
+  const groups = {};
+  for (const t of A.all.closed) (groups[keyOf(closeDate(t))] ||= []).push(t);
+  const keys = Object.keys(groups).sort().reverse();
+  const pcell = (list) => {
+    if (!list.length) return `<td class="faint">-</td>`;
+    const idr = list.map(idrOf), sumR = list.reduce((a, t) => a + (Number(t.result.R) || 0), 0);
+    const v = idr.some(x => x == null) ? null : idr.reduce((a, x) => a + x, 0);
+    return `<td class="mono"><span class="${cls(v)}">${v == null ? "kurs belum ada" : rp(v)}</span><br><span class="faint">${list.length} trade · ${fmtR(sumR)}</span></td>`;
+  };
+  $("cPeriodBody").innerHTML = keys.length ? keys.map(k => {
+    const g = groups[k];
+    return `<tr><td>${labelOf(k)}</td>${pcell(g.filter(t => t.market === "idx"))}${pcell(g.filter(t => t.market === "us"))}${pcell(g)}</tr>`;
+  }).join("") : `<tr><td colspan="4" class="empty">Belum ada trade selesai.</td></tr>`;
+}
+
+function multiCurveSvg(days, series, names) {
+  const W = 600, H = 150, pad = 8;
+  const all = [0, ...series.flat()];
+  const lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 1;
+  const x = (i) => pad + (i / (days.length - 1)) * (W - 2 * pad);
+  const y = (v) => H - pad - ((v - lo) / span) * (H - 2 * pad);
+  const colors = ["var(--gold)", "#5B9BD5", "var(--text)"];
+  const lines = series.map((s, k) => `<polyline points="${s.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${colors[k]}" stroke-width="${k === 2 ? 2.5 : 1.5}" ${k === 2 ? "" : 'stroke-dasharray="5 3"'} vector-effect="non-scaling-stroke"/>`).join("");
+  const legend = names.map((n, k) => `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px"><span style="width:14px;height:2px;background:${colors[k]};display:inline-block"></span>${n} ${MARKETS.idx.money(series[k].at(-1))}</span>`).join("");
+  return `<svg class="curve" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="P/L kumulatif Rupiah IDX, US dan total">
+    <line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--border)" stroke-dasharray="4 4"/>${lines}
+  </svg><div class="faint" style="margin-top:4px">${legend}<br>${dayLabel(days[0])} – ${dayLabel(days.at(-1))}</div>`;
+}
+
+window.__dt = { S, renderAuto, renderCombined }; // untuk uji tampilan
 function renderAll() {
   fillFlat(); tickClock(); renderChips(); renderScan(); renderJournal(); renderSettings();
 }

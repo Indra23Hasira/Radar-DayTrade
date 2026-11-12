@@ -26,6 +26,9 @@ Firebase: menumpang project `radar-idx-hasira` (login sama dengan Radar IDX). Ko
 - v0.4.2 (10 Nov 2026) universe IDX dibaca dari "arsip hemat" Radar IDX (`radarBundles/rolling`, ±4 baca per run,
   dulu ±200); jatuh balik ke query lama kalau arsip tidak ada/usang. Bagian dari penghematan kuota semua app
   (radar-bundle.js di repo Radar-IDX-Hasira, lihat ARSIP-HEMAT.md di sana).
+- v0.5 (12 Nov 2026) tab **Gabungan**: IDX vs US vs total (trade, % menang, R, profit factor, drawdown R, P/L asli & Rupiah),
+  kurva P/L Rupiah kumulatif, tabel per minggu/bulan. P/L US → Rupiah pakai kurs USD/IDR harian Yahoo (IDR=X) pada tanggal
+  tutup trade (cache localStorage 6 jam). Runner: kandidat IDX dipilih ulang tiap siklus kalau data Yahoo belum masuk (11 Nov).
 
 ## Temuan
 - 9 Nov 2026: kuota harian Firestore Spark project radar-idx-hasira HABIS (RESOURCE_EXHAUSTED). Penyebab: Radar IDX
