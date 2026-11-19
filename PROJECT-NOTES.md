@@ -29,6 +29,10 @@ Firebase: menumpang project `radar-idx-hasira` (login sama dengan Radar IDX). Ko
 - v0.5 (12 Nov 2026) tab **Gabungan**: IDX vs US vs total (trade, % menang, R, profit factor, drawdown R, P/L asli & Rupiah),
   kurva P/L Rupiah kumulatif, tabel per minggu/bulan. P/L US → Rupiah pakai kurs USD/IDR harian Yahoo (IDR=X) pada tanggal
   tutup trade (cache localStorage 6 jam). Runner: kandidat IDX dipilih ulang tiap siklus kalau data Yahoo belum masuk (11 Nov).
+- v0.6 (19 Nov 2026) **saldo berjalan** (lib/balance.js, default nyala per pasar): saldo paper = modal awal (setelan "Modal
+  total") + P/L trade otomatis selesai (opsional mulai tanggal `balanceFrom`). Runner menskalakan modal, kas, rugi maks per
+  trade & batas harian dengan saldo/modal awal → setelah SL trade berikutnya mengecil. Saldo tampil di kartu Mode otomatis,
+  Pengaturan, tab Gabungan (total Rupiah), dan ringkasan Telegram. Trade manual tidak memengaruhi saldo.
 
 ## Temuan
 - 9 Nov 2026: kuota harian Firestore Spark project radar-idx-hasira HABIS (RESOURCE_EXHAUSTED). Penyebab: Radar IDX

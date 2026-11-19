@@ -19,6 +19,7 @@ import { report, CRITERIA, verdictOf, fmtR } from "../lib/report.js";
 import { yahooLive, yahooFixtures, mapLimit } from "./sources.js";
 import { fileStore, resilientStore } from "./store.js";
 import { IDX_FALLBACK } from "./idx-fallback.js";
+import { effectiveSettings, paperBalance } from "../lib/balance.js";
 
 // ---------------------------------------------------------------- argumen & lingkungan
 const A = {};
@@ -180,7 +181,9 @@ function todayStats(trades, today) {
 }
 
 async function onSignal(c, e, ctx) {
-  const { S, today, win, trades } = ctx;
+  const { today, win, trades } = ctx;
+  // saldo berjalan: ukuran posisi & batas rugi mengikuti modal awal ± hasil trade otomatis sebelumnya
+  const S = effectiveSettings(ctx.S, trades, (x) => (M.id === "idx" ? Math.floor(x) : Math.floor(x * 100) / 100)).S;
   const p = cache.get(c.symbol);
   const day = p.days[today];
   const last = day.bars.at(-1);
@@ -284,6 +287,7 @@ async function evaluateOpen(trades, fees, today, notify = true) {
 }
 
 // ---------------------------------------------------------------- ringkasan harian
+let SET = null; // pengaturan pasar ini (untuk saldo di ringkasan)
 async function dailySummary(today, trades, sigs, uniInfo) {
   const r = report(trades);
   const by = (s) => sigs.filter(x => x.status === s).length;
@@ -297,6 +301,7 @@ async function dailySummary(today, trades, sigs, uniInfo) {
     "",
     `<b>Rapor otomatis</b> (${r.n} trade selesai): ${r.n ? `menang ${pctTxt(r.winRate)} · rata-rata ${fmtR(r.avgR)} · total ${money(r.totalPnl)} · drawdown terdalam -${r.maxDD.toFixed(1)}R` : "belum ada"}`,
     `Kelayakan: <b>${verdictOf(r)}</b> — ${CRITERIA.map(c => `${c.ok(r) ? "✓" : "✗"} ${c.val(r)}`).join(" · ")}`,
+    (() => { const b = paperBalance(SET || {}, trades); return b.on && b.start ? `💰 Saldo paper: <b>${money(b.balance)}</b> (modal awal ${money(b.start)}, ${b.realized >= 0 ? "+" : ""}${(b.pct * 100).toFixed(1)}%)` : ""; })(),
     uniInfo?.warn ? `⚠️ ${esc(uniInfo.warn)}` : "",
     degradedNote().trim(),
   ];
@@ -317,6 +322,7 @@ function archive(today, cands) {
 async function main() {
   const S0 = await store.settings(M.id);
   const S = { ...DEFAULTS[M.id], ...S0 };
+  SET = S;
   const runner = (await store.runner(M.id)) || {};
   const today = localParts(now(), M.tz).date;
   if (S.autoEnabled === false || S.autoEnabled === "false") { log("mode otomatis dimatikan di Pengaturan"); return; }

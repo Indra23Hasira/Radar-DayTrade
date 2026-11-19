@@ -273,6 +273,7 @@
       <summary class="card-h" style="border:0"><h2 style="display:inline">Pengaturan & batas risiko</h2> <span class="faint" id="settingsMarket"></span></summary>
       <div class="card-b">
         <div class="grid-f" id="settingsForm"></div>
+        <div class="msg info" id="balanceInfo" style="margin-top:10px"></div>
         <div class="row" style="margin-top:12px">
           <button class="btn primary" id="btnSaveSettings">Simpan</button>
           <span class="faint" id="settingsMsg"></span>
@@ -293,7 +294,7 @@
 
   </div><!-- /marketView -->
 
-  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.5 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
+  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.6 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
 </main>
 
 <script type="module">
@@ -304,6 +305,7 @@ import {
 } from "./lib/engine.js";
 import { DEFAULTS } from "./lib/defaults.js";
 import { report, CRITERIA, verdictOf, fmtR } from "./lib/report.js";
+import { paperBalance, effectiveSettings } from "./lib/balance.js";
 
 // ---------------------------------------------------------------- konfigurasi
 const firebaseConfig = {
@@ -315,7 +317,7 @@ const firebaseConfig = {
   appId: "1:675342054884:web:cd557eacc3b1da649c03f1",
 };
 const FIELDS = [
-  ["equity", "Modal total", "num"], ["cash", "Kas tersedia", "num"], ["maxLossPerTrade", "Rugi maks per trade", "num"],
+  ["equity", "Modal total (= modal awal kalau saldo berjalan aktif)", "num"], ["cash", "Kas tersedia", "num"], ["maxLossPerTrade", "Rugi maks per trade", "num"],
   ["dailyLossLimit", "Batas rugi harian", "num"], ["maxTradesPerDay", "Maks trade per hari", "num"], ["minRR", "Min reward:risk (bersih fee)", "num"],
   ["maxPositionPct", "Maks % modal per posisi", "num"], ["cashBufferPct", "Cadangan kas %", "num"], ["orMinutes", "Opening range (menit)", "num"],
   ["maxExtension", "Maks jarak breakout (× lebar OR, 0 = mati)", "num"],
@@ -323,7 +325,8 @@ const FIELDS = [
   ["minOrder", "Komisi min per order", "num"], ["maxPct", "Komisi maks % nilai order", "num"],
   ["blocked", "Kode diblokir (koma)", "text"],
   ["nextExit", "Mode jual besok: jam beli/jual maks (WIB)", "text", "us"],
-  ["autoEnabled", "Mode otomatis aktif", "bool"], ["autoTopN", "Otomatis: jumlah kandidat dipantau", "num"],
+  ["autoEnabled", "Mode otomatis aktif", "bool"],
+  ["compound", "Saldo berjalan: modal ikut untung/rugi trade otomatis", "bool"], ["balanceFrom", "Saldo berjalan: hitung mulai tanggal (YYYY-MM-DD, kosong = semua)", "text"], ["autoTopN", "Otomatis: jumlah kandidat dipantau", "num"],
   ["minAvgValue", "Otomatis: min nilai transaksi rata-rata 20 hari (Rp)", "num", "idx"], ["minPrice", "Otomatis: harga minimum", "num"],
   ["slippage", "Otomatis: slippage entry (tick)", "num", "idx"], ["slippage", "Otomatis: slippage entry (%)", "num", "us"],
   ["autoStopRule", "Otomatis: stop (or_mid / or_low / pct:1)", "text"], ["autoTargetRule", "Otomatis: target (mis. 2R)", "text"],
@@ -786,8 +789,16 @@ function renderJournal() {
 }
 
 // ---------------------------------------------------------------- pengaturan
+function balanceText(m, st) {
+  const trades = S.trades.filter(t => t.auto && t.market === m.id);
+  const { S: eff, b, factor } = effectiveSettings(st, trades);
+  if (!b.on) return `Saldo berjalan <b>mati</b>: ukuran posisi selalu dihitung dari modal ${m.money(b.start)}, berapa pun untung/rugi sebelumnya.`;
+  return `💰 Saldo paper sekarang <b>${m.money(b.balance)}</b> (modal awal ${m.money(b.start)} ${b.realized >= 0 ? "+" : "−"} ${m.money(Math.abs(b.realized)).replace("−", "")} dari ${b.n} trade otomatis selesai${b.from ? ` sejak ${b.from}` : ""}, ${(b.pct * 100).toFixed(1)}%). ` +
+    `Trade otomatis berikutnya memakai: rugi maks per trade <b>${m.money(eff.maxLossPerTrade)}</b>, batas rugi harian <b>${m.money(eff.dailyLossLimit)}</b>${factor < 0.999 || factor > 1.001 ? ` (×${factor.toFixed(3)} dari setelan)` : ""}.`;
+}
 function renderSettings() {
   const st = ST();
+  $("balanceInfo").innerHTML = balanceText(M(), st);
   $("settingsMarket").textContent = `(${M().name})`;
   $("settingsForm").innerHTML = FIELDS.filter(([, , , mk]) => !mk || mk === S.market).map(([k, label, type]) => type === "bool"
     ? `<label class="f">${label}<span class="row"><input data-k="${k}" type="checkbox" ${st[k] === false || st[k] === "false" ? "" : "checked"}> <span class="faint">${st[k] === false || st[k] === "false" ? "mati" : "nyala"}</span></span></label>`
@@ -914,7 +925,9 @@ function renderAuto(runner, sigs, sigDate) {
     <div class="stat"><div class="v">${r.n ? Math.round(r.winRate * 100) + "%" : "-"}</div><div class="l">Menang</div></div>
     <div class="stat"><div class="v ${(r.avgR ?? 0) >= 0 ? "pos" : "neg"}">${r.avgR == null ? "-" : fmtR(r.avgR)}</div><div class="l">Rata-rata R</div></div>
     <div class="stat"><div class="v ${r.totalPnl >= 0 ? "pos" : "neg"}">${r.n ? m.money(r.totalPnl) : "-"}</div><div class="l">Total P/L paper</div></div>
-    <div class="stat"><div class="v neg">${r.n ? "-" + r.maxDD.toFixed(1) + "R" : "-"}</div><div class="l">Drawdown terdalam</div></div>`;
+    <div class="stat"><div class="v neg">${r.n ? "-" + r.maxDD.toFixed(1) + "R" : "-"}</div><div class="l">Drawdown terdalam</div></div>
+    ${(() => { const b = paperBalance(ST(), autoTrades); return b.on && b.start ? `<div class="stat"><div class="v ${b.realized >= 0 ? "pos" : "neg"}">${m.money(b.balance)}</div><div class="l">Saldo paper (awal ${m.money(b.start)}, ${(b.pct * 100).toFixed(1)}%)</div></div>` : ""; })()}`;
+  if ($("balanceInfo")) $("balanceInfo").innerHTML = balanceText(m, ST());
   $("autoCurve").innerHTML = r.curve.length >= 2 ? curveSvg(r.curve) : `<div class="faint">Kurva muncul setelah ada minimal 2 trade selesai.</div>`;
   $("autoCriteria").innerHTML = CRITERIA.map(c => `<li><span class="${c.ok(r) ? "pos" : "neg"}">${c.ok(r) ? "✓" : "✗"}</span><span>${esc(c.label)}</span><span class="d">${esc(c.val(r))}</span></li>`).join("");
 }
@@ -1017,7 +1030,7 @@ function renderCombined() {
     row("Drawdown terdalam (R)", (a) => (a.r.n ? `<span class="neg">-${a.r.maxDD.toFixed(1)}R</span>` : "-")),
     row("P/L mata uang asli", (a, k) => (k === "all" ? `<span class="faint">—</span>` : a.r.n ? `<span class="${cls(a.r.totalPnl)}">${(k === "idx" ? rp : usd)(a.r.totalPnl)}</span>` : "-")),
     row("<b>P/L dalam Rupiah</b>", (a) => (!a.r.n ? "-" : a.idr == null ? `<span class="faint">kurs belum ada</span>` : `<b class="${cls(a.idr)}">${rp(a.idr)}</b>`)),
-  ].join("");
+  ].join("") + balanceRows(rp, usd, lastFx);
 
   // kurva Rupiah kumulatif per tanggal tutup
   const days = [...new Set(A.all.closed.map(closeDate))].sort();
@@ -1053,6 +1066,19 @@ function renderCombined() {
     const g = groups[k];
     return `<tr><td>${labelOf(k)}</td>${pcell(g.filter(t => t.market === "idx"))}${pcell(g.filter(t => t.market === "us"))}${pcell(g)}</tr>`;
   }).join("") : `<tr><td colspan="4" class="empty">Belum ada trade selesai.</td></tr>`;
+}
+
+// saldo paper per pasar (selalu dari trade otomatis, tidak ikut filter) + total dalam Rupiah
+function balanceRows(rp, usd, lastFx) {
+  const B = { idx: paperBalance(S.settings.idx, S.trades.filter(t => t.auto && t.market === "idx")), us: paperBalance(S.settings.us, S.trades.filter(t => t.auto && t.market === "us")) };
+  const fx = lastFx ? lastFx[1] : null;
+  const tot = (k) => B.idx[k] + (fx ? B.us[k] * fx : NaN);
+  const c = (x) => (x >= 0 ? "pos" : "neg");
+  const totCell = (k, bold) => (fx ? `<td class="mono">${bold ? "<b>" : ""}${rp(tot(k))}${bold ? "</b>" : ""}</td>` : `<td class="faint">kurs belum ada</td>`);
+  return `<tr><td>Modal awal (otomatis)</td><td class="mono">${rp(B.idx.start)}</td><td class="mono">${usd(B.us.start)}</td>${totCell("start")}</tr>
+    <tr><td><b>Saldo paper sekarang</b></td><td class="mono"><b class="${c(B.idx.realized)}">${rp(B.idx.balance)}</b> <span class="faint">${(B.idx.pct * 100).toFixed(1)}%</span></td>
+      <td class="mono"><b class="${c(B.us.realized)}">${usd(B.us.balance)}</b> <span class="faint">${(B.us.pct * 100).toFixed(1)}%</span></td>${totCell("balance", true)}</tr>
+    ${!B.idx.on || !B.us.on ? `<tr><td colspan="4" class="faint">Saldo berjalan mati untuk ${[!B.idx.on && "IDX", !B.us.on && "US"].filter(Boolean).join(" & ")} — ukuran posisi tetap dari modal awal.</td></tr>` : ""}`;
 }
 
 function multiCurveSvg(days, series, names) {
