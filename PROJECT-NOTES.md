@@ -33,6 +33,9 @@ Firebase: menumpang project `radar-idx-hasira` (login sama dengan Radar IDX). Ko
   total") + P/L trade otomatis selesai (opsional mulai tanggal `balanceFrom`). Runner menskalakan modal, kas, rugi maks per
   trade & batas harian dengan saldo/modal awal → setelah SL trade berikutnya mengecil. Saldo tampil di kartu Mode otomatis,
   Pengaturan, tab Gabungan (total Rupiah), dan ringkasan Telegram. Trade manual tidak memengaruhi saldo.
+- v0.7 (26 Nov 2026) tombol **"Coba demo tanpa login"** di layar masuk: data contoh dari lib/demo.js (acak ber-seed,
+  ±16 hari bursa per pasar, sinyal hari ini, runner contoh), banner "Mode demo", tidak membaca/menulis Firestore dan tidak
+  menyentuh localStorage (kecuali cache kurs). Scanner/rencana tetap pakai harga Yahoo asli. Data asli tetap terkunci rules.
 
 ## Temuan
 - 9 Nov 2026: kuota harian Firestore Spark project radar-idx-hasira HABIS (RESOURCE_EXHAUSTED). Penyebab: Radar IDX

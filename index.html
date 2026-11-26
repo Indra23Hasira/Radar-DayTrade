@@ -129,6 +129,9 @@
     <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password" required>
     <button class="btn primary" type="submit">Masuk</button>
     <div id="loginError" class="msg err hidden"></div>
+    <div class="faint" style="text-align:center;margin-top:4px">atau</div>
+    <button class="btn" type="button" id="btnDemo">Coba demo tanpa login</button>
+    <div class="faint" style="font-size:12px;text-align:center">Demo memakai data contoh dan tidak menyimpan apa pun. Scanner & rencana tetap memakai harga pasar (Yahoo).</div>
   </form>
 </div>
 
@@ -151,6 +154,7 @@
 </header>
 
 <main>
+  <div class="banner hidden" id="demoBanner" style="border-color:var(--cyan)"><b style="color:var(--cyan)">Mode demo.</b> Jurnal, sinyal otomatis, dan saldo di bawah adalah <b>data contoh</b> (bukan hasil trading sungguhan) dan perubahan apa pun tidak disimpan. Scanner, grafik, Time Machine, dan rencana memakai harga pasar asli dari Yahoo. <a href="#" id="demoLogin">Masuk dengan akun</a></div>
   <div class="banner"><b>Mode paper.</b> Aplikasi ini tidak pernah mengirim order. Tiket di bawah dieksekusi manual di aplikasi broker setelah Anda yakin. Bukan saran keuangan; kebanyakan day trader rugi.
     <span id="usNote" class="hidden"> Tab US: data Yahoo bisa tertunda; komisi mengikuti IBKR Pro Fixed (min $1, maks 1%). Mode "jual besok" membawa posisi semalam — stop tidak melindungi dari gap.</span></div>
 
@@ -294,7 +298,7 @@
 
   </div><!-- /marketView -->
 
-  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.6 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
+  <div class="faint" style="text-align:center">Logika diadaptasi dari <a href="https://github.com/Jakeschincariol/day-trader-skill" target="_blank" rel="noopener">day-trader-skill</a> (MIT). v0.7 · Aturan IDX: fraksi harga, lot 100, ARA/ARB per tanggal berlaku, jeda siang, fee + PPh 0,1%.</div>
 </main>
 
 <script type="module">
@@ -355,7 +359,7 @@ const winOf = (date) => exitWindow(M(), date, selectedFlat(), ST().nextExit);
 const wibTxt = (date, min) => S.market === "idx" ? "" : ` (${hhmm(toWIB(M(), date, min).min)} WIB)`;
 const ls = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  set(k, v) { if (S.demo && !String(k).startsWith("dt_fx")) return; try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }, // demo: tidak menimpa data asli
 };
 
 // ---------------------------------------------------------------- Firebase
@@ -369,6 +373,7 @@ async function initFirebase() {
     S.db = fs.getFirestore(app); S.fs = fs;
     auth = authFns.getAuth(app);
     authFns.onAuthStateChanged(auth, async (user) => {
+      if (S.demo) return; // sedang mode demo: abaikan status login
       S.user = user;
       $("loginOverlay").classList.toggle("hidden", !!user);
       $("userEmail").textContent = user?.email || "";
@@ -385,7 +390,23 @@ $("loginForm").addEventListener("submit", async (e) => {
   try { await authFns.signInWithEmailAndPassword(auth, $("loginEmail").value.trim(), $("loginPassword").value); }
   catch { showLoginErr("Login gagal: email atau password salah."); }
 });
-$("btnLogout").onclick = () => auth && authFns.signOut(auth);
+$("btnLogout").onclick = () => (S.demo ? location.reload() : auth && authFns.signOut(auth));
+
+// ---------------------------------------------------------------- demo tanpa login
+let DEMO = null;
+$("btnDemo").onclick = async () => {
+  const { makeDemo } = await import("./lib/demo.js");
+  DEMO = makeDemo();
+  S.demo = true; remoteOk = false;
+  S.settings = { idx: { ...DEFAULTS.idx }, us: { ...DEFAULTS.us } };
+  S.trades = DEMO.trades;
+  $("loginOverlay").classList.add("hidden");
+  $("demoBanner").classList.remove("hidden");
+  $("userEmail").textContent = "Demo";
+  $("btnLogout").textContent = "Keluar demo";
+  renderAll(); runScan(false); loadAuto(true);
+};
+$("demoLogin").onclick = (e) => { e.preventDefault(); location.reload(); };
 
 let remoteOk = true;
 function remoteWarn(e) {
@@ -851,6 +872,7 @@ const STATUS_TAG = { pass: ["trig", "PASS"], block: ["block", "BLOCK"], extended
 // Hemat kuota Firestore (Spark, dipakai bersama Radar IDX): trade otomatis hanya dibaca ulang
 // kalau runner menulis sesuatu yang baru; status dicek tiap 5 menit saat halaman terlihat.
 async function loadAuto(force = false) {
+  if (S.demo && DEMO) { renderAuto(DEMO.runner[S.market], DEMO.sigs[S.market], DEMO.sigDate[S.market]); renderJournal(); return; }
   if (!S.db || !S.user) return;
   const { doc, getDoc, collection, getDocs, query, where } = S.fs;
   const m = M();
